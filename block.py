@@ -15,7 +15,7 @@ class Block(object):
     data=[]
     if hasattr(self,'data'):
       for item in self.data:
-        data.append(Transaction(item))
+        data.append(Transaction.parseTransaction(item))
     self.data = data
     if not hasattr(self, 'diffcult'):
       self.diffcult = 0
@@ -27,10 +27,20 @@ class Block(object):
     #print("index,diffcult,hash",self.index,self.diffcult,self.hash)
     
   def header_string(self):
-    return str(self.index) + self.prev_hash + json.dumps(self.data_dict(),sort_keys=True) + str(self.timestamp) + str(self.diffcult) + str(self.nonce)
+    return "".join([str(self.index),
+        self.prev_hash,
+        utils.obj2json(self.data,sort_keys=True),
+        str(self.timestamp),
+        str(self.diffcult),
+        str(self.nonce)])
     
   def generate_header(index, prev_hash, data, timestamp, nonce):
-    return str(index) + prev_hash + str(self.data_dict()) + str(timestamp) + str(self.diffcult) + str(nonce)
+    return "".join([str(index),
+           prev_hash, 
+           utils.obj2json(data,sort_keys=True),
+           str(timestamp),
+           str(self.diffcult),
+           str(nonce)])
 
   def update_self_hash(self):
     sha = hashlib.sha256()
@@ -43,45 +53,7 @@ class Block(object):
     index_string = str(self.index).zfill(6) 
     filename = '%s%s.json' % (CHAINDATA_DIR, index_string)
     with open(filename, 'w') as block_file:
-      json.dump(self.to_dict(),block_file,sort_keys=True)
-
-  def to_dict(self):
-    info = {}
-    info['index'] = str(self.index)
-    info['timestamp'] = str(self.timestamp)
-    info['prev_hash'] = str(self.prev_hash)
-    info['data'] = self.data_dict()
-    info['hash'] = str(self.hash)
-    info['diffcult'] = str(self.diffcult)
-    info['nonce'] = str(self.nonce)
-    return info
-
-  def to_simple_dict(self):
-    info = {}
-    info['index'] = str(self.index)
-    info['data'] = self.data_simple_dict()
-    info['hash'] = str(self.hash)
-    info['diffcult'] = str(self.diffcult)
-    info['nonce'] = str(self.nonce)
-    return info
-
-  def data_dict(self):
-    data = []
-    for item in self.data:
-      if isinstance(item,Transaction):
-        data.append(item.to_dict())
-      else:
-        data.append(item)
-    return data
-
-  def data_simple_dict(self):
-    data = []
-    for item in self.data:
-      if isinstance(item,Transaction):
-        data.append(item.to_simple_dict())
-      else:
-        data.append(item)
-    return data
+      utils.obj2jsonFile(self,block_file,sort_keys=True)
 
   def is_valid(self):
     if self.index == 0:

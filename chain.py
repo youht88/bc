@@ -41,6 +41,8 @@ class Chain(object):
       if b.hash == hash:
         return b
     return False
+  def findUTXO(self):
+    pass
   def findUnspendTransactions(self,address):
     pass
   def findSpendableOutputs(self,address,amount):
@@ -99,7 +101,5 @@ class Chain(object):
     return True
 
   def block_list_dict(self):
-    return [b.to_dict() for b in self.blocks]
+    return [utils.obj2dict(b) for b in self.blocks]
     
-  def block_list_simple_dict(self):
-    return [b.to_simple_dict() for b in self.blocks]

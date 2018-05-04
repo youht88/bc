@@ -185,7 +185,7 @@ class Node(object):
       fileset=glob.glob(
          os.path.join(BROADCASTED_BLOCK_DIR, '*.json'))
       fileset.sort()
-      print("????",self.blockchain.blocks)
+      
       index = self.blockchain.maxindex()
       for filepath in fileset:
         fileIndex=(os.path.split(filepath[:filepath.find("_")]))[1]
@@ -205,19 +205,19 @@ class Node(object):
   def genesisBlock(self):
     newBlock=Block({"index":0,"prev_hash":"0","timestamp":time.time()})
     newBlock.self_save()
-  def mine(self,pay):
+  def mine(self,coinbase):
     possibleTransactions = self.syncPossibleTransactions()  
     print('-'*20,'\n',possibleTransactions)
     possibleTransactionsDict=[]
+    possibleTransactionsDict.append(coinbase)
     for item in possibleTransactions:
       possibleTransactionsDict.append(item.to_dict())
     
-    possibleTransactionsDict.append(pay)
     print("possibleTransaction:",possibleTransactionsDict)
 
     new_block = self.mine_for_block(possibleTransactionsDict)
     
-    block_dict = new_block.to_dict()
+    block_dict = utils.obj2dict(new_block)
     for peer in self.nodes:
       if peer == self.me:
         continue
@@ -246,12 +246,12 @@ class Node(object):
     timestamp = date.datetime.now().strftime('%s')
     
     #暂时关闭交易
-    #data = transactions
+    data = transactions
     
     prev_hash = last_block.hash
     nonce = 0
   
-    block_info_dict = utils.dictConvert1(CONVERSIONS=BLOCK_VAR_CONVERSIONS,index=index, timestamp=timestamp, data=data, prev_hash=prev_hash, nonce=nonce)
+    block_info_dict = utils.args2dict(CONVERSIONS=BLOCK_VAR_CONVERSIONS,index=index, timestamp=timestamp, data=data, prev_hash=prev_hash, nonce=nonce)
     new_block = Block(block_info_dict)
     return self.find_valid_nonce(new_block)
   

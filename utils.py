@@ -177,7 +177,7 @@ def dictConvert(fromDict,toDict,CONVERSIONS):
       setattr(toDict, key, CONVERSIONS[key](value))
     else:
       setattr(toDict, key, value)
-def dictConvert1(CONVERSIONS,**kwargs):
+def args2dict(CONVERSIONS,**kwargs):
   info = {}
   for key in kwargs:
     if key in CONVERSIONS:
@@ -185,7 +185,12 @@ def dictConvert1(CONVERSIONS,**kwargs):
     else:
       info[key] = kwargs[key]
   return info
-  
+def obj2jsonFile(obj,file,sort_keys=True,indent=None):
+  return json.dump(obj,file,default=lambda o:o.__dict__,sort_keys=sort_keys,indent=indent)
+def obj2json(obj,sort_keys=True,indent=None):
+  return json.dumps(obj,default=lambda o:o.__dict__,sort_keys=sort_keys,indent=indent)
+def obj2dict(obj,sort_keys=True,indent=None):
+  return json.loads(obj2json(obj,sort_keys=sort_keys,indent=indent))
 def is_valid_chain():
   '''
     We need to check to see if the entire chain is valid.

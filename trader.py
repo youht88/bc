@@ -1,6 +1,6 @@
 from wallete import Wallete
 from node import Node
-from transaction import Transaction
+from transaction import Transaction,TXin
 import os
 import json
 import sys
@@ -29,7 +29,7 @@ if me==None:
     raise Exception("if not define --me,you must define it in me file named by ME_FILE")
 else:
   with open(ME_FILE,"w") as f:
-    f.write(self.me)
+    f.write(me)
 
 try:
   os.chdir(me)
@@ -64,31 +64,20 @@ node.syncOverallChain(save=True)
 youhtWallete=Wallete("youht")
 jinliWallete=Wallete("jinli")
 
-pay={"outPrvkey":youhtWallete.key[0],
-       "outPubkey":youhtWallete.key[1],
-       "inPubkey":jinliWallete.key[1],
-       "amount":NUM_ZEROS}
+newTX=Transaction.newTransaction("jinli","youht",2,node.blockchain)
 
-t1=Transaction.newCoinbase(jinliWallete.address)
-print(jinliWallete.address)
-print(t1.hash,t1.ins,t1.outs)
-t2=Transaction.newUTXO("abcd","xyz",2,node.blockchain)
-print(t2.hash,t2.ins,t.outs)
-exit()
+newTXdict=utils.obj2dict(newTX)
 
-newTransaction=Transaction(pay)
-
-transaction_dict = newTransaction.to_dict()
 for peer in node.nodes:
   if peer==node.me:
     continue
   try:
     res = requests.post("http://%s/transacted"%peer,
-                        json=transaction_dict,timeout=10)
+                        json=newTXdict,timeout=10)
     print("%s successed."%peer)
   except Exception as e:
     print("%s error is %s"%(peer,e))  
 utils.warning("transaction广播完成")
 
 value=youhtWallete.getBalance(node.blockchain)
-print("youht's wallete has %i"%value)  
+print("youht's wallete has {}".format(value))  

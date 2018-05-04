@@ -55,10 +55,8 @@ if not os.path.exists(BROADCASTED_TRANSACTION_DIR):
 #make pvkey,pbkey,wallete address  
 rootWallete=Wallete("root")
 myWallete=Wallete("youht")
-pay={"outPrvkey":rootWallete.key[0],
-       "outPubkey":rootWallete.key[1],
-       "inPubkey":myWallete.key[1],
-       "amount":NUM_ZEROS}
+t1=Transaction.newCoinbase(myWallete.address)
+coinbase=utils.obj2dict(t1)
     
 #make node
 node=Node({"host":args.host,
@@ -80,7 +78,7 @@ if len(localChain.blocks)==0:
 node.syncOverallChain(save=True) 
    
 #mine
-node.mine(pay)
+node.mine(coinbase)
 
 @app.route('/',methods=['GET'])
 def default():
@@ -138,11 +136,6 @@ def blockchainList():
   json_blocks = json.dumps(local_chain.block_list_dict())
   return json_blocks
 
-@app.route('/sbc.json', methods=['GET'])
-def blockchain_simple():
-  local_chain = node.syncLocalChain() 
-  json_blocks = json.dumps(local_chain.block_list_simple_dict())
-  return json_blocks
 
 @app.route('/possible/blocks', methods=['GET'])
 def getPossibleBlocks():
@@ -175,7 +168,7 @@ def mined():
     nonce = possible_block.nonce
     filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
     with open(filename, 'w') as block_file:
-      json.dump(possible_block.to_dict(), block_file,sort_keys=True)
+      utils.obj2jsonFile(possible_block, block_file,sort_keys=True)
     return jsonify(confirmed=True)
   else:
     #ditch it
@@ -184,15 +177,15 @@ def mined():
 @app.route('/transacted', methods=['POST'])
 def transacted():
   possible_transaction_data = request.get_json()
-  print("*"*40,"\n",possible_transaction_data)
+  print("*"*40,type(possible_transaction_data),"\n",possible_transaction_data)
   #validate possible_block
-  possible_transaction = Transaction(possible_transaction_data)
+  possible_transaction = Transaction.parseTransaction(possible_transaction_data)
   if possible_transaction.isValid():
     #save to file to possible folder
     transaction_hash = possible_transaction.hash
     filename = BROADCASTED_TRANSACTION_DIR + '%s.json' % transaction_hash
     with open(filename, 'w') as transaction_file:
-      json.dump(possible_transaction.to_dict(), transaction_file,sort_keys=True)
+      utils.obj2jsonFile(possible_transaction,transaction_file,sort_keys=True)
     return jsonify(confirmed=True)
   else:
     #ditch it
