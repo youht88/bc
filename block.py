@@ -33,7 +33,8 @@ class Block(object):
         str(self.timestamp),
         str(self.diffcult),
         str(self.nonce)])
-    
+  
+  '''  
   def generate_header(index, prev_hash, data, timestamp, nonce):
     return "".join([str(index),
            prev_hash, 
@@ -41,7 +42,8 @@ class Block(object):
            str(timestamp),
            str(self.diffcult),
            str(nonce)])
-
+  '''
+  
   def update_self_hash(self):
     sha = hashlib.sha256()
     sha.update(self.header_string().encode())
@@ -59,17 +61,16 @@ class Block(object):
     if self.index == 0:
       return True
     utils.debug("danger","verify block #"+str(self.index))
-    utils.debug("success","verify proof of work")
-    utils.debug("warning","old:",self.hash)
+    utils.debug("danger","verify proof of work")
     self.update_self_hash()
-    utils.debug("info","new:",self.hash)
     if not (str(self.hash[0:self.diffcult]) == '0' * self.diffcult):
       return False
-    utils.debug("info","%s is truly worked"%self.hash)
+    utils.debug("success","%s is truly worked"%self.hash)
     utils.debug("danger","verify transaction data")
     for transaction in self.data:
       utils.debug("info",self.data)
-      transaction.isValid()
+      if not transaction.isValid():
+        return False
     return True
       
     

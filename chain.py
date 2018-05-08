@@ -8,13 +8,14 @@ class Chain(object):
   '''
   def __init__(self, blocks):
     self.blocks = blocks
-
   def is_valid(self):
     for index, cur_block in enumerate(self.blocks[1:]):
       prev_block = self.blocks[index]
       if prev_block.index+1 != cur_block.index:
         return False
-      if not cur_block.is_valid(): #checks the hash
+      if not cur_block.is_valid():
+        #checks the hash
+        utils.danger("cur_block {} false".format(index))
         return False
       utils.debug("warning",
         "verify prev block hash is this block prev_hash")
@@ -41,13 +42,55 @@ class Chain(object):
       if b.hash == hash:
         return b
     return False
-  def findUTXO(self):
-    pass
+  
+  def findUTXO(self,address):
+    #print(address,"\n")
+    #print(utils.obj2json(self,indent=2))
+    unspendOutputs=[]
+    spendInputs=[]
+    block = self.lastblock()
+    while block.prev_hash!=0:
+      data = block.data
+      for TX in data:
+        for idx,txout in enumerate(TX.outs): 
+          if txout.outAddr==address:
+            notFind=True
+            for item in spendInputs:
+              if TX.hash==item["hash"] and idx==item["index"]:
+                  notFind=False
+                  break
+            if notFind == True:
+              unspendOutputs.append({"hash":TX.hash,"index":idx,"amount":txout.amount})
+        for idx,txin in enumerate(TX.ins):
+          spendInputs.append({"hash":txin.prevHash,"index":txin.index})
+      block = self.find_block_by_hash(block.prev_hash)
+      if not block:
+        break
+    #print(address,"\n")
+    #print(utils.obj2json(unspendOutputs,indent=2))
+    return unspendOutputs    
+
+  def findSpendableOutputs(self,address,amount):
+    acc=0
+    unspend = []
+    UTXO = self.findUTXO(address)
+    for item in UTXO:
+      acc = acc + item["amount"]
+      unspend.append(item)
+      if acc >= amount :
+        break
+    return {"acc":acc,"unspend":unspend}
+
+  def getBalance(self,address):
+    total=0
+    UTXO = self.findUTXO(address)
+    for item in UTXO:
+      total = total + item["amount"]
+    return total
+
   def findUnspendTransactions(self,address):
     pass
-  def findSpendableOutputs(self,address,amount):
-    rtn = (acc,validOutputs)=(2,"abc")
-    return rtn
+
   def __len__(self):
     return len(self.blocks)
 

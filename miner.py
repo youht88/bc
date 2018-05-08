@@ -18,6 +18,8 @@ parser.add_argument("--entryNode",type=str,help="indicate which node to entry,e.
 parser.add_argument("--me",type=str,help="indicate who am I,e.g. ip|host:port .Default to search 'me' file")
 parser.add_argument("--host",type=str,default="0.0.0.0",help="default ip is 0.0.0.0")
 parser.add_argument("--port",type=int,default="5000",help="default port is 5000")
+parser.add_argument("--name",type=str,help="name of wallete")
+
 args=parser.parse_args()
 
 #make and change work dir use args.me,otherwise use current dir
@@ -41,6 +43,8 @@ except:
     os.chdir(me)
   except:
     pass
+if args.name==None:
+  args.name=me
 
 #init
 if not os.path.exists(PRIVATE_DIR):
@@ -53,10 +57,7 @@ if not os.path.exists(BROADCASTED_TRANSACTION_DIR):
   os.makedirs(BROADCASTED_TRANSACTION_DIR)
 
 #make pvkey,pbkey,wallete address  
-rootWallete=Wallete("root")
-myWallete=Wallete("youht")
-t1=Transaction.newCoinbase(myWallete.address)
-coinbase=utils.obj2dict(t1)
+myWallete=Wallete(args.name)
     
 #make node
 node=Node({"host":args.host,
@@ -77,16 +78,14 @@ if len(localChain.blocks)==0:
 #sync blockchain
 node.syncOverallChain(save=True) 
    
-#mine
-node.mine(coinbase)
 
 @app.route('/',methods=['GET'])
 def default():
   return "hello youht"
 
-@app.route('/react',methods=['GET'])
+@app.route('/index',methods=['GET'])
 def react():
-  return render_template('react.html',data="youht")
+  return render_template('index.html',data="youht")
 
 @app.route('/hello',methods=['GET'])
 def hello():
@@ -152,10 +151,22 @@ def getPossibleTransactions():
   data = json.dumps(possibleTransactions)
   return data
 
+@app.route('/lastblock',methods=['GET'])
+def lastblock():
+  node.syncOverallChain(save=True)
+  newBlock=node.blockchain.lastblock()
+  return jsonify(utils.obj2dict(newBlock)),200
+
 @app.route('/mine',methods=['GET'])
 def mine():
-   node.mine()
-   return "ok",200
+  node.syncOverallChain(save=False) 
+
+  t1=Transaction.newCoinbase(myWallete.address)
+  coinbase=utils.obj2dict(t1)
+  #mine
+  newBlock=node.mine(coinbase)
+  return jsonify(utils.obj2dict(newBlock)),200
+
 @app.route('/mined', methods=['POST'])
 def mined():
   possible_block_data = request.get_json()
@@ -177,7 +188,6 @@ def mined():
 @app.route('/transacted', methods=['POST'])
 def transacted():
   possible_transaction_data = request.get_json()
-  print("*"*40,type(possible_transaction_data),"\n",possible_transaction_data)
   #validate possible_block
   possible_transaction = Transaction.parseTransaction(possible_transaction_data)
   if possible_transaction.isValid():

@@ -191,17 +191,6 @@ def obj2json(obj,sort_keys=True,indent=None):
   return json.dumps(obj,default=lambda o:o.__dict__,sort_keys=sort_keys,indent=indent)
 def obj2dict(obj,sort_keys=True,indent=None):
   return json.loads(obj2json(obj,sort_keys=sort_keys,indent=indent))
-def is_valid_chain():
-  '''
-    We need to check to see if the entire chain is valid.
-    To do this, we check if each block in order is valid.
-    The is_valid() function in the Block class handles the
-    hash connection between the previous and current block.
-  '''
-  for b in blockchain:
-    if not b.is_valid():
-      return False
-  return True
 
 
 

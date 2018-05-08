@@ -15,8 +15,6 @@ from transaction import Transaction
 import threading
 import time
 
-from utils import is_valid_chain
-
 
 class Node(object):
   def __init__(self,dict):
@@ -142,12 +140,14 @@ class Node(object):
         r = requests.get(peer_blockchain_url,timeout=3)
         try:
           peer_blockchain_dict = r.json()
+          utils.danger(len(peer_blockchain_dict))
           peer_blocks = [Block(bdict) for bdict in peer_blockchain_dict]
           peer_chain = Chain(peer_blocks)
-  
+          utils.danger(peer_chain.is_valid())
           if peer_chain.is_valid() and peer_chain > best_chain:
             best_chain = peer_chain
         except:
+          utils.danger("error",r.text)
           pass
       except requests.exceptions.ConnectionError:
         utils.danger("Peer at %s not running. Continuing to next peer." % peer)
@@ -176,7 +176,9 @@ class Node(object):
           except:
             print(filepath)
             return possible_transactions
-          possible_transactions.append( Transaction(transaction_info))
+          utils.warning("del:",filepath)
+          os.remove(filepath)  
+          possible_transactions.append(Transaction.parseTransaction(transaction_info))
     return possible_transactions
 
   def syncPossibleBlocks(self):
@@ -207,14 +209,12 @@ class Node(object):
     newBlock.self_save()
   def mine(self,coinbase):
     possibleTransactions = self.syncPossibleTransactions()  
-    print('-'*20,'\n',possibleTransactions)
     possibleTransactionsDict=[]
     possibleTransactionsDict.append(coinbase)
     for item in possibleTransactions:
-      possibleTransactionsDict.append(item.to_dict())
+      possibleTransactionsDict.append(utils.obj2dict(item,sort_keys=True))
     
-    print("possibleTransaction:",possibleTransactionsDict)
-
+    print('*'*10,'\n',possibleTransactionsDict,'\n','*'*10)
     new_block = self.mine_for_block(possibleTransactionsDict)
     
     block_dict = utils.obj2dict(new_block)
@@ -227,6 +227,7 @@ class Node(object):
       except Exception as e:
         print("%s error is %s"%(peer,e))  
     utils.warning("mine广播完成")
+    return new_block
   
   def mine_for_block(self,transactions):
     print("mine for block sync")
@@ -234,7 +235,6 @@ class Node(object):
     print("mine for block sync done")
     print("possible_block sync")
     possible_blocks=self.syncPossibleBlocks()
-    print("abcd","\n",possible_blocks)
     print("possible_block sync done")
     prev_block = current_chain.lastblock()
     new_block = self.mine_blocks(prev_block,transactions)
@@ -264,9 +264,8 @@ class Node(object):
       new_block.update_self_hash()
   
     print ("block %s mined. Nonce: %s , hash: %s" % (new_block.index, new_block.nonce,new_block.hash))
-  
     utils.success("block #"+
           str(new_block.index)+
-          " is"),new_block.is_valid()
+          " is",new_block.is_valid())
     return new_block #we mined the block. We're going to want to save it
 

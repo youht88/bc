@@ -1,6 +1,6 @@
 from wallete import Wallete
 from node import Node
-from transaction import Transaction,TXin
+from transaction import Transaction
 import os
 import json
 import sys
@@ -64,20 +64,33 @@ node.syncOverallChain(save=True)
 youhtWallete=Wallete("youht")
 jinliWallete=Wallete("jinli")
 
-newTX=Transaction.newTransaction("jinli","youht",2,node.blockchain)
 
-newTXdict=utils.obj2dict(newTX)
+coinbaseTX=Transaction.newCoinbase(youhtWallete.address)
+print(utils.obj2json(coinbaseTX))
 
-for peer in node.nodes:
-  if peer==node.me:
-    continue
-  try:
-    res = requests.post("http://%s/transacted"%peer,
+#UTXO=node.blockchain.findUTXO(youhtWallete.address)
+
+value=node.blockchain.getBalance(youhtWallete.address)
+utils.warning("youht's wallete has {}".format(value))  
+value1=node.blockchain.getBalance(jinliWallete.address)
+utils.warning("jinli's wallete has {}".format(value1))  
+
+
+newTX=Transaction.newTransaction(youhtWallete.key[0],youhtWallete.key[1],jinliWallete.key[1],2,node.blockchain)
+if newTX:
+  newTXdict=utils.obj2dict(newTX)
+  for peer in node.nodes:
+    try:
+      res = requests.post("http://%s/transacted"%peer,
                         json=newTXdict,timeout=10)
-    print("%s successed."%peer)
-  except Exception as e:
-    print("%s error is %s"%(peer,e))  
-utils.warning("transaction广播完成")
+      if res.status_code == 200:
+        print("%s successed."%peer)
+      else:
+        print("%s error is %s"%(peer,res.status_code))
+    except Exception as e:
+      print("%s error is %s"%(peer,e))  
+  utils.warning("transaction广播完成")
 
-value=youhtWallete.getBalance(node.blockchain)
-print("youht's wallete has {}".format(value))  
+#coinbase=utils.obj2dict(Transaction.newCoinbase(youhtWallete.address))
+#mine
+#node.mine(coinbase)

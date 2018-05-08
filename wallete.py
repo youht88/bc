@@ -2,8 +2,6 @@
 from config import *
 import utils,os,hashlib
 
-from chain import Chain 
-
 class Wallete(object):
   def __init__(self,name):
     try:
@@ -23,12 +21,15 @@ class Wallete(object):
       with open("%s%s/pbkey.pem"%(PRIVATE_DIR,name),"rb") as f:
               pbkey = f.read()
       self.key=(pvkey,pbkey)=(pvkey,pbkey)
-      self.address=utils.sha256(pbkey)
+      self.address=Wallete.address(pbkey)
       if not os.path.exists("%s%s/%s"%(PRIVATE_DIR,name,self.address)):
         print("warning : wallete address is changed excepted!")
-  def getBalance(self,blockchain):
-    return 100
-    pass
+  @staticmethod
+  def address(pbkey):
+    return utils.sha256(pbkey)
+
+
+   
 
         
         
