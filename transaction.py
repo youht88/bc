@@ -12,6 +12,7 @@ class TXin(object):
   def __init__(self,dict):
     self.prevHash=dict["prevHash"] if "prevHash" in dict else "" 
     self.index   =dict["index"]    if "index"    in dict else ""
+    self.inAddr  =dict["inAddr"]   if "inAddr"   in dict else ""
     if "pubkey64D" in dict:
       self.pubkey64D=dict["pubkey64D"]
     else:
@@ -30,15 +31,22 @@ class TXin(object):
       else:
         #D  mean decode bin to str
         self.signD=sign.decode()
+  def canUnlockWith(self,script):
+    return True
+    #return self.pubkey64D == script
   def toDict(self):
     info={}
     info["prevHash"]=self.prevHash
     return info
+
 class TXout(object):
   def __init__(self,dict):
     self.amount=dict["amount"]   if "amount"  in dict else None
     self.outAddr=dict["outAddr"] if "outAddr" in dict else ""
-
+  
+  def canbeUnlockWith(self,script):
+    return self.outAddr == script
+    
 class Transaction(object):
     def __init__(self,**args):
       self.ins=args["ins"]
@@ -67,38 +75,47 @@ class Transaction(object):
       hash=data["hash"]
       timestamp=data["timestamp"]
       return Transaction(hash=hash,timestamp=timestamp,ins=ins,outs=outs)
+   
     @staticmethod
     def newCoinbase(outAddr):
-      ins=[TXin({"prevHash":"","index":-1,"pubkey":None,"sign":None})]
-      outs=[TXout({"amount":3,"outAddr":outAddr})]
+      ins=[TXin({"prevHash":"","index":-1,"inAddr":"","pubkey":None,"sign":None})]
+      outs=[TXout({"amount":REWARD,"outAddr":outAddr})]
       return Transaction(ins=ins,outs=outs)
+   
     @staticmethod
-    def newTransaction(inPrvkey,inPubkey,outPubkey,amount,blockchain):
+    def newTransaction(inPrvkey,inPubkey,outPubkey,amount,utxo):
       ins=[]
       outs=[]
       inAddr=Wallete.address(inPubkey)
       outAddr=Wallete.address(outPubkey)
-      todo = blockchain.findSpendableOutputs(inAddr,amount)
-      #todo={"acc":3,"unspend":[{"hash":"abc","index":0,"amount":"3"}]},{"hash":"xyz","index":0,"amount":"2"}]}]}
-      print("todo","\n",todo)
+      todo = utxo.findSpendableOutputs(inAddr,amount)
+      #todo={"acc":3,"unspend":{"3453425125":{"index":0,"amount":"3"},        
+      #                         "2543543543":{"index":0,"amount":"2"}
+      #                        }
+      #     }
+      print("newTransaction.todo","\n",todo)
       if todo["acc"] < amount:
         utils.danger("%s not have enough money."%inAddr)
         return None
-      for output in todo["unspend"]:
-        prevHash = output["hash"]
+      for hash in todo["unspend"]:
+        output = todo["unspend"][hash]
+        prevHash = hash
         index = output["index"]
-        toSign=prevHash+str(index)+inAddr
+        toSign=prevHash+str(index)
         sign=utils.sign(message=toSign,prvkey=inPrvkey)
         ins.append(TXin({"prevHash":prevHash,
                          "index":index,
+                         "inADdr":inAddr,
                          "pubkey":inPubkey,
                          "sign":sign}))
       outs.append(TXout({"amount":amount,"outAddr":outAddr}))
       if todo["acc"] > amount:
         outs.append(TXout({"amount":todo["acc"]-amount,"outAddr":inAddr}))
       return Transaction(ins=ins,outs=outs)
+   
     def isCoinbase(self):
       return self.ins[0].index==-1
+   
     def sign(self,prvkey,prevTXs):
       if iscoinbase(self):
          return

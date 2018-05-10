@@ -29,11 +29,16 @@ class Block(object):
   def header_string(self):
     return "".join([str(self.index),
         self.prev_hash,
-        utils.obj2json(self.data,sort_keys=True),
+        self.getMerkleRoot(),
         str(self.timestamp),
         str(self.diffcult),
         str(self.nonce)])
-  
+  def getMerkleRoot(self):
+    txHash=[]
+    for item in self.data:
+      txHash.append(item.hash)
+    merkleRoot=utils.sha256("".join(txHash))
+    return merkleRoot
   '''  
   def generate_header(index, prev_hash, data, timestamp, nonce):
     return "".join([str(index),

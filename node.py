@@ -8,7 +8,7 @@ import glob
 from config import *
 import utils
 
-from chain import Chain
+from chain import Chain,UTXO
 from block import Block
 from transaction import Transaction
 
@@ -76,7 +76,7 @@ class Node(object):
         print('*'*5,'\n',todoNodes,'\n','*'*5)
         try:
           print("-------------------")
-          res = requests.get("http://"+node+"/nodes/register",params={"newNode":self.me},timeout=3)
+          res = requests.get("http://"+node+"/node/register",params={"newNode":self.me},timeout=3)
           comeinNodes=set(res.json()["nodes"])
           doneNodes.add(node)
           todoNodes=(todoNodes | comeinNodes) - doneNodes
@@ -160,8 +160,17 @@ class Node(object):
     self.blockchain = best_chain
     if save:
       best_chain.self_save()
+    self.resetUTXO()
     return best_chain
   
+  def resetUTXO(self):
+    self.utxo = UTXO()
+    self.utxo.reset(self.blockchain)
+    return self.utxo.utxoSet
+  
+  def updateUTXO(self,newblock):
+    self.utxo.update(newblock)
+      
   def syncPossibleTransactions(self):
     possible_transactions=[]
     #We're assuming that the folder and at least initial block exists
@@ -204,9 +213,14 @@ class Node(object):
           possible_blocks.append(Block(block_info))
     return possible_blocks
 
-  def genesisBlock(self):
-    newBlock=Block({"index":0,"prev_hash":"0","timestamp":time.time()})
+  def genesisBlock(self,coinbase):
+    newBlock=self.find_valid_nonce(Block(
+      {"index":0,
+      "prev_hash":"0",
+      "data":[coinbase],
+      "timestamp":time.time()}))
     newBlock.self_save()
+    
   def mine(self,coinbase):
     possibleTransactions = self.syncPossibleTransactions()  
     possibleTransactionsDict=[]
@@ -227,6 +241,9 @@ class Node(object):
       except Exception as e:
         print("%s error is %s"%(peer,e))  
     utils.warning("mine广播完成")
+    self.blockchain.add_block(new_block)
+    #self.utxo.update()
+    self.updateUTXO(new_block)
     return new_block
   
   def mine_for_block(self,transactions):

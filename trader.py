@@ -59,9 +59,10 @@ node=Node( {"entryNode":args.entryNode,
 node.syncOverallNodes()
 #sync blockchain
 node.syncOverallChain(save=True) 
+node.resetUTXO()
 
 #make pvkey,pbkey,wallete address  
-youhtWallete=Wallete("youht")
+youhtWallete=Wallete(me)
 jinliWallete=Wallete("jinli")
 
 
@@ -70,13 +71,13 @@ print(utils.obj2json(coinbaseTX))
 
 #UTXO=node.blockchain.findUTXO(youhtWallete.address)
 
-value=node.blockchain.getBalance(youhtWallete.address)
+value=node.utxo.getBalance(youhtWallete.address)
 utils.warning("youht's wallete has {}".format(value))  
-value1=node.blockchain.getBalance(jinliWallete.address)
+value1=node.utxo.getBalance(jinliWallete.address)
 utils.warning("jinli's wallete has {}".format(value1))  
 
 
-newTX=Transaction.newTransaction(youhtWallete.key[0],youhtWallete.key[1],jinliWallete.key[1],2,node.blockchain)
+newTX=Transaction.newTransaction(youhtWallete.key[0],youhtWallete.key[1],jinliWallete.key[1],5,node.utxo)
 if newTX:
   newTXdict=utils.obj2dict(newTX)
   for peer in node.nodes:

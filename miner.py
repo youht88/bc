@@ -2,7 +2,9 @@ from wallete import Wallete
 from node import Node
 from block import Block
 from transaction import Transaction
-from flask import Flask, jsonify, request , render_template
+from chain import UTXO
+from flask import Flask,jsonify,request,render_template,make_response
+    
 import requests
 import os
 import json
@@ -11,6 +13,7 @@ import argparse
 from config import *
 
 import utils
+import string,random,hashlib,time
 
 #args check & use help
 parser=argparse.ArgumentParser()
@@ -51,6 +54,8 @@ if not os.path.exists(PRIVATE_DIR):
   os.makedirs(PRIVATE_DIR)
 if not os.path.exists(CHAINDATA_DIR):
   os.makedirs(CHAINDATA_DIR)
+if not os.path.exists(UTXO_DIR):
+  os.makedirs(UTXO_DIR)
 if not os.path.exists(BROADCASTED_BLOCK_DIR):
   os.makedirs(BROADCASTED_BLOCK_DIR)
 if not os.path.exists(BROADCASTED_TRANSACTION_DIR):
@@ -73,11 +78,15 @@ node.syncOverallNodes()
 #genesis block ,only first node first time to use 
 localChain = node.syncLocalChain()
 if len(localChain.blocks)==0:
-  node.genesisBlock()
+  t1=Transaction.newCoinbase(myWallete.address)
+  coinbase=utils.obj2dict(t1)
+
+  node.genesisBlock(coinbase)
 
 #sync blockchain
 node.syncOverallChain(save=True) 
-   
+#sync utxo
+node.resetUTXO()
 
 @app.route('/',methods=['GET'])
 def default():
@@ -87,15 +96,22 @@ def default():
 def react():
   return render_template('index.html',data="youht")
 
-@app.route('/hello',methods=['GET'])
-def hello():
-  a=1
-  for i in range(1,18000):
-     a*=i
-  return  json.dumps({"index":a})
+@app.route('/hash',methods=['GET'])
+def testHash():
+
+  result=[]
+  t1=time.time()
+  for i in range(50001):
+    temp="".join(random.sample(string.ascii_letters,
+                         random.randint(10,50)))
+    hash=hashlib.sha256(temp.encode()).hexdigest()
+    if i%10000==0:
+     result.append({"hash":hash,"min":(time.time()-t1)/60,"count":i})
+  t2=time.time()
+  return  jsonify({"totalMin":(t2-t1)/60,"result":result})
 
 #node function:list,register,unregister,sync
-@app.route('/nodes/list',methods=['GET'])
+@app.route('/node/list',methods=['GET'])
 def nodeList():
    utils.warning("node.nodes",node.nodes)
    response={
@@ -103,7 +119,7 @@ def nodeList():
    }
    return jsonify(response),200
 
-@app.route('/nodes/sync',methods=['GET'])
+@app.route('/node/sync',methods=['GET'])
 def nodeSync():
   node.syncOverallNodes()
   response={
@@ -111,7 +127,7 @@ def nodeSync():
   }
   return jsonify(response),200
 
-@app.route('/nodes/register',methods=['GET'])
+@app.route('/node/register',methods=['GET'])
 def nodeRegister():
    newNode=request.values.get("newNode")
    nodeSet = node.register(newNode)
@@ -120,7 +136,7 @@ def nodeRegister():
    }
    return jsonify(response),200
 
-@app.route('/nodes/unregister',methods=['GET'])
+@app.route('/node/unregister',methods=['GET'])
 def nodeUnregister():
    delNode=request.values.get("delNode")
    nodeSet = node.unregister(delNode)
@@ -128,13 +144,6 @@ def nodeUnregister():
       'nodes': list(node.nodes)
    }
    return jsonify(response),200
-
-@app.route('/blockchain', methods=['GET'])
-def blockchainList():
-  local_chain = node.syncLocalChain() 
-  json_blocks = json.dumps(local_chain.block_list_dict())
-  return json_blocks
-
 
 @app.route('/possible/blocks', methods=['GET'])
 def getPossibleBlocks():
@@ -200,6 +209,45 @@ def transacted():
   else:
     #ditch it
     return jsonify(confirmed=False)
+
+@app.route('/balance/<string:address>/',methods=['GET'])
+def getBalance(address):
+  value = node.utxo.getBalance(address)
+  return jsonify({"address":address,"value":value})
+
+
+@app.route('/blockchain', methods=['GET'])
+def blockchainList():
+  local_chain = node.syncLocalChain() 
+  json_blocks = json.dumps(local_chain.block_list_dict())
+  return json_blocks
+
+
+@app.route('/block/<int:index>/',methods=['GET'])
+def getBlock(index):
+  block = node.blockchain.find_block_by_index(index)
+  return jsonify(utils.obj2dict(block))
+  
+@app.route('/utxo/<string:address>/',methods=['GET'])
+def findUTXO(address):
+  utxo = node.utxo.findUTXO(address)
+  return jsonify(utils.obj2dict(utxo))
+  
+@app.route('/transaction/<string:hash>/',methods=['GET'])
+def findTransaction(hash):
+  transaction = node.blockchain.findTransaction(hash)
+  return jsonify(utils.obj2dict(transaction))
+
+@app.route('/utxo/reset/',methods=['GET'])
+def utxoReindex():
+  utxoSet = node.resetUTXO()
+  return jsonify(utils.obj2dict(utxoSet))
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return make_response(jsonify({'error': 'Not found'}), 404)
+
 
 if __name__ == '__main__':
   app.run(host=node.host, port=node.port,debug=True,threaded=True)

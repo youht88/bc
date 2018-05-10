@@ -1,11 +1,123 @@
 from block import Block
+from transaction import TXout
 import utils
 
+from config import *
+
+class UTXO(object):
+  def __init__(self):
+    self.utxoSet=[]
+  def reset(self,blockchain):
+    #print(address,"\n")
+    #print(utils.obj2json(self,indent=2))
+    utxoSet={}
+    spendInputs=[]
+    block = blockchain.lastblock()
+    utils.warning("blockhigh:%i"%block.index)
+    while True:
+      data = block.data
+      for TX in data:
+        unspendOutputs=[]  
+        for idx,txout in enumerate(TX.outs): 
+          notFind=True
+          for item in spendInputs:
+            if TX.hash==item["hash"] and idx==item["index"]:
+                notFind=False
+                break
+          if notFind == True:
+            unspendOutputs.append({
+                      "index":idx,
+                      "txout":TXout({"amount":txout.amount,
+                      "outAddr":txout.outAddr})
+                      })
+        if not TX.isCoinbase():
+          for idx,txin in enumerate(TX.ins):
+            spendInputs.append({"hash":txin.prevHash,"index":txin.index})
+        if not unspendOutputs==[]:
+          utxoSet[TX.hash]=unspendOutputs
+      block = blockchain.find_block_by_hash(block.prev_hash)
+      if not block:
+        break
+    self.utxoSet = utxoSet
+    self.save()
+    return utxoSet
+    
+  def update(self,block):
+    utxoSet=self.utxoSet
+    for TX in block.data:
+      #ins
+      if TX.isCoinbase() == False:
+        for idx,txin in enumerate(TX.ins):
+          txin.prevHash,txin.index
+          outs=utxoSet[txin.prevHash]
+          for i,out in enumerate(outs) :
+            if out["index"] == txin.index:
+              del outs[i]
+          if outs==[]:
+            del utxoSet[txin.prevHash]
+          else:
+            utxoSet[txin.prevHash]=outs
+      #outs
+      unspendOutputs=[]
+      for idx,txout in enumerate(TX.outs):
+        unspendOutputs.append({
+                      "index":idx,
+                      "txout":TXout({"amount":txout.amount,
+                                     "outAddr":txout.outAddr})
+                                   })
+      if not unspendOutputs==[]:
+        utxoSet[TX.hash]=unspendOutputs
+    self.utxoSet = utxoSet
+  def save(self):
+    filename = '%s%s.json' % (UTXO_DIR,'utxo')
+    try:
+      with open(filename,'w') as file:
+        utils.obj2jsonFile(self.utxoSet,file)
+    except Exception as e:
+      utils.danger("error write utxo file.",e)
+  def load(self):
+    filename = '%s%s.json' % (UTXO_DIR,'utxo')
+    try:
+      with open(filename,'r') as file:
+        self.utxoSet = json.load(file)
+    except:
+      utils.danger("error read utxo file.")
+  def findUTXO(self,address):
+    utxoSet = self.utxoSet
+    findUtxoSet={}
+    for hash in utxoSet:
+      outs = utxoSet[hash]
+      unspendOutputs=[]
+      for out in outs:
+        if out["txout"].canbeUnlockWith(address):
+          unspendOutputs.append({"index":out["index"],"txout":out["txout"]})
+      if not unspendOutputs==[]:
+        findUtxoSet[hash]=unspendOutputs
+    return findUtxoSet
+  def getBalance(self,address):
+    total=0
+    utxoSet=self.findUTXO(address)
+    for hash in utxoSet:
+      outs = utxoSet[hash]
+      for out in outs:
+        total = total + out["txout"].amount
+    return total
+  def findSpendableOutputs(self,address,amount):
+    acc=0
+    unspend = {}
+    utxoSet = self.findUTXO(address)
+    for hash in utxoSet:
+      outs = utxoSet[hash]
+      for out in outs:
+        acc = acc + out["txout"].amount
+        unspend[hash]={"index":out["index"],"amount":out["txout"].amount}
+        if acc >=amount:
+          break
+      if acc >= amount :
+        break
+    return {"acc":acc,"unspend":unspend}
+      
 class Chain(object):
-  '''
-  def __init__(self, blocks=[]):
-    self.blocks = blocks
-  '''
   def __init__(self, blocks):
     self.blocks = blocks
   def is_valid(self):
@@ -24,15 +136,12 @@ class Chain(object):
     return True
 
   def self_save(self):
-    '''
-      We want to save this in the file system as we do.
-    '''
     for b in self.blocks:
       b.self_save()
     return True
 
   def find_block_by_index(self, index):
-    if len(self) <= index:
+    if len(self) >= index + 1:
       return self.blocks[index]
     else:
       return False
@@ -43,53 +152,19 @@ class Chain(object):
         return b
     return False
   
-  def findUTXO(self,address):
-    #print(address,"\n")
-    #print(utils.obj2json(self,indent=2))
-    unspendOutputs=[]
-    spendInputs=[]
+  def findTransaction(self,hash):
     block = self.lastblock()
-    while block.prev_hash!=0:
-      data = block.data
+    transaction=None
+    while True:
+      data=block.data
       for TX in data:
-        for idx,txout in enumerate(TX.outs): 
-          if txout.outAddr==address:
-            notFind=True
-            for item in spendInputs:
-              if TX.hash==item["hash"] and idx==item["index"]:
-                  notFind=False
-                  break
-            if notFind == True:
-              unspendOutputs.append({"hash":TX.hash,"index":idx,"amount":txout.amount})
-        for idx,txin in enumerate(TX.ins):
-          spendInputs.append({"hash":txin.prevHash,"index":txin.index})
+        if TX.hash == hash: 
+          transaction = TX
+          break
       block = self.find_block_by_hash(block.prev_hash)
       if not block:
         break
-    #print(address,"\n")
-    #print(utils.obj2json(unspendOutputs,indent=2))
-    return unspendOutputs    
-
-  def findSpendableOutputs(self,address,amount):
-    acc=0
-    unspend = []
-    UTXO = self.findUTXO(address)
-    for item in UTXO:
-      acc = acc + item["amount"]
-      unspend.append(item)
-      if acc >= amount :
-        break
-    return {"acc":acc,"unspend":unspend}
-
-  def getBalance(self,address):
-    total=0
-    UTXO = self.findUTXO(address)
-    for item in UTXO:
-      total = total + item["amount"]
-    return total
-
-  def findUnspendTransactions(self,address):
-    pass
+    return transaction
 
   def __len__(self):
     return len(self.blocks)
@@ -120,11 +195,7 @@ class Chain(object):
   def lastblock(self):
     return self.blocks[-1]
   def maxindex(self):
-    '''
-      We're assuming a valid chain. Might change later
-    '''
     return self.blocks[-1].index
-
   def add_block(self, new_block):
     '''
       Put the new block into the index that the block is asking.
