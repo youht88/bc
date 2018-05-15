@@ -11,9 +11,11 @@ import utils
 from chain import Chain,UTXO
 from block import Block
 from transaction import Transaction
+from wallete import Wallete
 
 import threading
 import time
+import random
 
 
 class Node(object):
@@ -127,7 +129,60 @@ class Node(object):
           local_block = Block(block_info)
           local_chain.add_block(local_block)
     return local_chain
+
+  def httpProcess(self,peer,url,timeout,fun):
+    try:
+      res = requests.get(url,timeout=timeout)
+      try:
+        fun(res,url)
+      except Exception as e:
+        utils.danger("error on execute ",fun.__name__,e)
+    except requests.exceptions.ConnectionError:
+      utils.danger("Peer at %s not running. Continuing to next peer." % peer)
+    except requests.exceptions.ReadTimeout:
+      utils.warning("Peer at %s timeout. Continuing to next peer." % peer)
+    else:
+      utils.success("Peer at %s is running. " % peer)
   
+  def randomPeerHttp(self,cnt,path,timeout,fun,*args):
+    nodes=list(self.nodes)
+    utils.warning(nodes,self.me)
+    try:
+      nodes.remove(self.me)
+    except:
+      pass
+    if len(nodes)>=cnt:
+      cnt=cnt
+    else:
+      cnt=len(nodes)
+    utils.warning(cnt,path,random.sample(nodes,cnt))
+    threads=[]
+    event = threading.Event()
+    for i,peer in enumerate(random.sample(nodes,cnt)):
+      if peer == self.me:
+        continue
+      if type(path)==str:
+        url = "http://"+peer+"/"+path
+      elif type(path)==list:
+        plen=len(path)
+        url = "http://"+peer+"/"+path[i%plen]
+      else:
+        url = "http://"+peer
+      threads.append(utils.CommonThread(name="httpProcess"+str(i),func=self.httpProcess,event=event,args=(peer,url,timeout,fun)))
+    for j in threads:
+      j.setDaemon(True)
+      j.start()     
+    return 'ok'   
+               
+  def syncToPool(self,res,url):
+    try:
+       blocks=[Block(bdict) for bdict in res.json()]
+       utils.warning("get {} blocks from {}".format(len(blocks),url))
+       for block in blocks:
+         if block.isValid():
+           block.saveToPool()
+    except:
+       utils.warning("error on syncRangeChain")
   def syncOverallChain(self,save=False):
     best_chain = self.syncLocalChain()
     
@@ -143,11 +198,11 @@ class Node(object):
           utils.danger(len(peer_blockchain_dict))
           peer_blocks = [Block(bdict) for bdict in peer_blockchain_dict]
           peer_chain = Chain(peer_blocks)
-          utils.danger(peer_chain.is_valid())
-          if peer_chain.is_valid() and peer_chain > best_chain:
+          utils.danger(peer_chain.isValid())
+          if peer_chain.isValid() and peer_chain > best_chain:
             best_chain = peer_chain
-        except:
-          utils.danger("error",r.text)
+        except Exception as e:
+          utils.danger("error syncOverallChain",e)
           pass
       except requests.exceptions.ConnectionError:
         utils.danger("Peer at %s not running. Continuing to next peer." % peer)
@@ -159,7 +214,7 @@ class Node(object):
     #for now, save the new blockchain over whatever was there
     self.blockchain = best_chain
     if save:
-      best_chain.self_save()
+      best_chain.save()
     self.resetUTXO()
     return best_chain
   
@@ -169,120 +224,151 @@ class Node(object):
     return self.utxo.utxoSet
   
   def updateUTXO(self,newblock):
-    self.utxo.update(newblock)
-      
-  def syncPossibleTransactions(self):
-    possible_transactions=[]
+    utxoset = self.utxo.update(newblock)
+    return utxoset
+  def txPoolSync(self):
+    txPool=[]
     #We're assuming that the folder and at least initial block exists
     if os.path.exists(BROADCASTED_TRANSACTION_DIR):
       fileset=glob.glob(
          os.path.join(BROADCASTED_TRANSACTION_DIR, '*.json'))
       fileset.sort()
       for filepath in fileset:
-        with open(filepath, 'r') as transaction_file:
+        with open(filepath, 'r') as txFile:
           try:
-            transaction_info = json.load(transaction_file)
+            txPoolDict = json.load(txFile)
           except:
-            print(filepath)
-            return possible_transactions
+            print("error on:",filepath)
           utils.warning("del:",filepath)
           os.remove(filepath)  
-          possible_transactions.append(Transaction.parseTransaction(transaction_info))
-    return possible_transactions
+          txPool.append(
+            Transaction.parseTransaction(txPoolDict))
+    return txPool
 
-  def syncPossibleBlocks(self):
-    possible_blocks = []
+  def blockPoolSync(self):
+    maxindex = self.blockchain.maxindex()
+    blockPool = []
     if os.path.exists(BROADCASTED_BLOCK_DIR):
       fileset=glob.glob(
-         os.path.join(BROADCASTED_BLOCK_DIR, '*.json'))
-      fileset.sort()
-      
-      index = self.blockchain.maxindex()
-      for filepath in fileset:
-        fileIndex=(os.path.split(filepath[:filepath.find("_")]))[1]
-        if int(fileIndex)<=index:
-          utils.warning("del:",filepath)
-          os.remove(filepath)
-          continue
-        with open(filepath, 'r') as block_file:
+         os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
+      if len(fileset)>=1:
+        filepath = fileset[0]
+        with open(filepath, 'r') as blockFile:
           try:
-            block_info = json.load(block_file)
-          except:
-            print(filepath)
-            return possible_blocks
-          possible_blocks.append(Block(block_info))
-    return possible_blocks
+            blockDict = json.load(blockFile)
+            block = Block(blockDict)
+            if block.isValid():
+              block.save()
+              self.blockchain.add_block(block)
+              self.updateUTXO(block)
+          except Exception as e:
+            print("error on:",filepath,e)
+          finally:
+            print("current blockchain high:",self.blockchain.maxindex())
+            os.remove(filepath)
+      elif len(fileset)>1:
+        pass
+        
+        
+  #index=(os.path.split(filepath[:filepath.find("_")]))[1]
+          
+  def tradeTest(self,nameFrom,nameTo,amount):
+    if nameFrom=='me':
+      wFrom = Wallete(self.me)
+    else:
+      wFrom = Wallete(nameFrom)
+    if nameTo=='me':
+      wTo = Wallete(self.me)
+    else:
+      wTo = Wallete(nameTo)
+    return self.trade(
+      wFrom.key[0],wFrom.key[1],wTo.key[1],amount)
+
+  def trade(self,inPrvkey,inPubkey,outPubkey,amount):
+    newTX=Transaction.newTransaction(
+      inPrvkey,inPubkey,outPubkey,amount,self.utxo)
+    newTXdict=None
+    if newTX:
+      newTXdict=utils.obj2dict(newTX)
+      for peer in self.nodes:
+        try:
+          res = requests.post("http://%s/transacted"%peer,
+                         json=newTXdict,timeout=10)
+          if res.status_code == 200:
+            print("%s successed."%peer)
+          else:
+            print("%s error is %s"%(peer,res.status_code))
+        except Exception as e:
+          print("%s error is %s"%(peer,e))  
+      utils.warning("transaction广播完成")
+    return newTXdict
 
   def genesisBlock(self,coinbase):
-    newBlock=self.find_valid_nonce(Block(
+    newBlock=self.findNonce(Block(
       {"index":0,
       "prev_hash":"0",
       "data":[coinbase],
       "timestamp":time.time()}))
-    newBlock.self_save()
+    newBlock.save()
     
   def mine(self,coinbase):
-    possibleTransactions = self.syncPossibleTransactions()  
-    possibleTransactionsDict=[]
-    possibleTransactionsDict.append(coinbase)
-    for item in possibleTransactions:
-      possibleTransactionsDict.append(utils.obj2dict(item,sort_keys=True))
+    #sync transaction from txPool
+    txPool = self.txPoolSync()  
+    txPoolDict=[]
+    txPoolDict.append(coinbase)
+    for item in txPool:
+      txPoolDict.append(utils.obj2dict(item,sort_keys=True))
+    print("mine for block sync")
+    currentChain = self.syncLocalChain() #gather last node
+    print("mine for block sync done")
+    prevBlock = currentChain.lastblock()
     
-    print('*'*10,'\n',possibleTransactionsDict,'\n','*'*10)
-    new_block = self.mine_for_block(possibleTransactionsDict)
+    #mine a block with a valid nonce
+    index = int(prevBlock.index) + 1
+    timestamp = date.datetime.now().strftime('%s')
+    data = txPoolDict
+    prev_hash = prevBlock.hash
+    nonce = 0  
+    blockDict = utils.args2dict(CONVERSIONS=BLOCK_VAR_CONVERSIONS,index=index, timestamp=timestamp, data=data, prev_hash=prev_hash, nonce=nonce)
+    newBlock = self.findNonce(Block(blockDict))
+  
+    blockDict = utils.obj2dict(newBlock)
     
-    block_dict = utils.obj2dict(new_block)
+    #push to blockPool
+    index = newBlock.index
+    nonce = newBlock.nonce
+    filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
+    with open(filename, 'w') as file:
+      utils.obj2jsonFile(newBlock,file,sort_keys=True)
+    
+    #broadcast to peers
     for peer in self.nodes:
       if peer == self.me:
         continue
       try:
         res = requests.post("http://%s/mined"%peer,
-                            json=block_dict,timeout=10)
+                            json=blockDict,timeout=10)
       except Exception as e:
         print("%s error is %s"%(peer,e))  
     utils.warning("mine广播完成")
-    self.blockchain.add_block(new_block)
-    #self.utxo.update()
-    self.updateUTXO(new_block)
-    return new_block
-  
-  def mine_for_block(self,transactions):
-    print("mine for block sync")
-    current_chain = self.syncLocalChain() #gather last node
-    print("mine for block sync done")
-    print("possible_block sync")
-    possible_blocks=self.syncPossibleBlocks()
-    print("possible_block sync done")
-    prev_block = current_chain.lastblock()
-    new_block = self.mine_blocks(prev_block,transactions)
-    new_block.self_save()
-    return new_block
-
-  def mine_blocks(self,last_block,transactions):
-    index = int(last_block.index) + 1
-    timestamp = date.datetime.now().strftime('%s')
     
-    #暂时关闭交易
-    data = transactions
+    #newBlock.save()
+    #self.blockchain.add_block(newBlock)
+    #self.updateUTXO(newBlock)
     
-    prev_hash = last_block.hash
-    nonce = 0
+    return newBlock
   
-    block_info_dict = utils.args2dict(CONVERSIONS=BLOCK_VAR_CONVERSIONS,index=index, timestamp=timestamp, data=data, prev_hash=prev_hash, nonce=nonce)
-    new_block = Block(block_info_dict)
-    return self.find_valid_nonce(new_block)
+  def findNonce(self,newBlock):
+    print("mining for block %s" % newBlock.index)
+    newBlock.update_self_hash()#calculate_hash(index, prev_hash, data, timestamp, nonce)
+    newBlock.diffcult = NUM_ZEROS
+    while str(newBlock.hash[0:NUM_ZEROS]) != '0' * NUM_ZEROS:
+      newBlock.nonce += 1
+      newBlock.update_self_hash()
   
-  def find_valid_nonce(self,new_block):
-    print("mining for block %s" % new_block.index)
-    new_block.update_self_hash()#calculate_hash(index, prev_hash, data, timestamp, nonce)
-    new_block.diffcult = NUM_ZEROS
-    while str(new_block.hash[0:NUM_ZEROS]) != '0' * NUM_ZEROS:
-      new_block.nonce += 1
-      new_block.update_self_hash()
-  
-    print ("block %s mined. Nonce: %s , hash: %s" % (new_block.index, new_block.nonce,new_block.hash))
+    print ("block %s mined. Nonce: %s , hash: %s" % (newBlock.index, newBlock.nonce,newBlock.hash))
     utils.success("block #"+
-          str(new_block.index)+
-          " is",new_block.is_valid())
-    return new_block #we mined the block. We're going to want to save it
+          str(newBlock.index)+
+          " is",newBlock.isValid())
+    return newBlock #we mined the block. We're going to want to save it
 

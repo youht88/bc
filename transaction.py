@@ -93,7 +93,7 @@ class Transaction(object):
       #                         "2543543543":{"index":0,"amount":"2"}
       #                        }
       #     }
-      print("newTransaction.todo","\n",todo)
+      #print("newTransaction.todo","\n",todo)
       if todo["acc"] < amount:
         utils.danger("%s not have enough money."%inAddr)
         return None
@@ -101,18 +101,20 @@ class Transaction(object):
         output = todo["unspend"][hash]
         prevHash = hash
         index = output["index"]
-        toSign=prevHash+str(index)
+        toSign=prevHash+str(index)+inAddr
         sign=utils.sign(message=toSign,prvkey=inPrvkey)
         ins.append(TXin({"prevHash":prevHash,
                          "index":index,
-                         "inADdr":inAddr,
+                         "inAddr":inAddr,
                          "pubkey":inPubkey,
                          "sign":sign}))
       outs.append(TXout({"amount":amount,"outAddr":outAddr}))
       if todo["acc"] > amount:
         outs.append(TXout({"amount":todo["acc"]-amount,"outAddr":inAddr}))
-      return Transaction(ins=ins,outs=outs)
-   
+      TX = Transaction(ins=ins,outs=outs)
+      utxo.updateWithTX(TX)
+      return TX
+  
     def isCoinbase(self):
       return self.ins[0].index==-1
    
@@ -121,17 +123,23 @@ class Transaction(object):
          return
       
     def isValid(self):
-        return True
-        #self.raw["amount"]=self.raw["amount"]+0.0001
-        outPubkey = base64.b64decode(self.outPubkey.encode())
-        is_verify=False
+      if self.isCoinbase():
+        return self.insLen==1 and self.outsLen==1 and self.outs[0].amount<=REWARD        
+      utils.debug("warning","begin verify:",utils.obj2json(self))
+      for oin in self.ins:
+        outPubkey = base64.b64decode(oin.pubkey64D.encode())
         #step1:verify it is mine 
-        if not utils.sha256(outPubkey)==self.raw["outAddr"]:
-          return is_verify
+        if not utils.sha256(outPubkey)==oin.inAddr:
+          return False
+        utils.debug("warning",oin.prevHash,oin.index,"step1 ok")
         #step2:verify not to be changed!!!!
-        is_verify=utils.verify(
-          self.raw,
-          self.sign.encode(),
+        isVerify=utils.verify(
+          oin.prevHash+str(oin.index)+oin.inAddr,
+          oin.signD.encode(),
           outPubkey
          )
-        return is_verify
+        if isVerify==False:
+          return False
+        utils.debug("warning",oin.prevHash,oin.index,"step2 ok")
+        
+      return True

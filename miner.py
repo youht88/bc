@@ -15,6 +15,9 @@ from config import *
 import utils
 import string,random,hashlib,time
 
+import threading
+import glob
+
 #args check & use help
 parser=argparse.ArgumentParser()
 parser.add_argument("--entryNode",type=str,help="indicate which node to entry,e.g. ip|host:port ")
@@ -32,7 +35,8 @@ if me==None:
   try:
     with open(ME_FILE,"r") as f:
       me = f.read()
-  except:
+      args.me=me
+  except :
     raise Exception("if not define --me,you must define it in me file named by ME_FILE")
 else:
   with open(ME_FILE,"w") as f:
@@ -88,44 +92,70 @@ node.syncOverallChain(save=True)
 #sync utxo
 node.resetUTXO()
 
-@app.route('/',methods=['GET'])
-def default():
-  return "hello youht"
+#start miner thread
+'''
+import threading
+import time
 
-@app.route('/index',methods=['GET'])
-def react():
-  return render_template('index.html',data="youht")
+class StoppableThread(threading.Thread):
+    def __init__(self, event):
+        super(StoppableThread, self).__init__()
+        self.event = event
 
-@app.route('/hash',methods=['GET'])
-def testHash():
+    def run(self):
+        while True:
+            print('OK')
+            if self.event.wait(timeout=1): # 这里的timeout可以是1分钟
+                break # 表示有人通知要退出了
 
-  result=[]
-  t1=time.time()
-  for i in range(50001):
-    temp="".join(random.sample(string.ascii_letters,
-                         random.randint(10,50)))
-    hash=hashlib.sha256(temp.encode()).hexdigest()
-    if i%10000==0:
-     result.append({"hash":hash,"min":(time.time()-t1)/60,"count":i})
-  t2=time.time()
-  return  jsonify({"totalMin":(t2-t1)/60,"result":result})
+event = threading.Event()
+t = StoppableThread(event)
+t.start()
+time.sleep(5)
+event.set()
+t.join()
+'''
 
-#node function:list,register,unregister,sync
-@app.route('/node/list',methods=['GET'])
-def nodeList():
-   utils.warning("node.nodes",node.nodes)
-   response={
-      'nodes': list(node.nodes)
-   }
-   return jsonify(response),200
+def minerProcess():
+  while True:
+    try:
+      txPoolFiles=glob.glob(
+         os.path.join(BROADCASTED_TRANSACTION_DIR, '*.json'))
+      if len(txPoolFiles)>=2:
+        print ('the arg is:%s,%s\r' % (len(txPoolFiles),time.time()))
+        t1=Transaction.newCoinbase(myWallete.address)
+        coinbase=utils.obj2dict(t1)
+        #mine
+        newBlock=node.mine(coinbase)
+      
+      time.sleep(10)
+      #print("txPool=",len(txPoolFiles))
+    except Exception as e:
+      print(e)
 
-@app.route('/node/sync',methods=['GET'])
-def nodeSync():
-  node.syncOverallNodes()
-  response={
-    'nodes': list(node.nodes)
-  }
-  return jsonify(response),200
+def blockerProcess():
+  while True:
+    #if self.event.wait(timeout=1):
+    #  break
+    if threading.enumerate()[-1].name=='Thread-1':
+      try:
+        node.blockPoolSync()
+        #print("blockPool=",node.blockchain.maxindex())
+      except Exception as e:
+        print(e)
+    time.sleep(10)
+  
+event = threading.Event()
+
+miner = utils.CommonThread(name="MineThread",func=minerProcess,event=event,args=())
+miner.setDaemon(True)
+miner.start()
+
+#blocker = BlockThread(event)
+blocker=utils.CommonThread(name="BlockThread",func=blockerProcess,event=event,args=())
+blocker.setDaemon(True)
+blocker.start()
+
 
 @app.route('/node/register',methods=['GET'])
 def nodeRegister():
@@ -145,36 +175,6 @@ def nodeUnregister():
    }
    return jsonify(response),200
 
-@app.route('/possible/blocks', methods=['GET'])
-def getPossibleBlocks():
-  possibleBlocks = node.syncPossibleBlocks()
-  blocks=[]
-  for item in possibleBlocks:
-    blocks.append(item.to_dict()) 
-  data = json.dumps(blocks)
-  return data
-
-@app.route('/possible/transactions', methods=['GET'])
-def getPossibleTransactions():
-  possibleTransactions = node.syncPossibleTransactions() 
-  data = json.dumps(possibleTransactions)
-  return data
-
-@app.route('/lastblock',methods=['GET'])
-def lastblock():
-  node.syncOverallChain(save=True)
-  newBlock=node.blockchain.lastblock()
-  return jsonify(utils.obj2dict(newBlock)),200
-
-@app.route('/mine',methods=['GET'])
-def mine():
-  node.syncOverallChain(save=False) 
-
-  t1=Transaction.newCoinbase(myWallete.address)
-  coinbase=utils.obj2dict(t1)
-  #mine
-  newBlock=node.mine(coinbase)
-  return jsonify(utils.obj2dict(newBlock)),200
 
 @app.route('/mined', methods=['POST'])
 def mined():
@@ -182,7 +182,7 @@ def mined():
   print("/"*40,"\n",possible_block_data)
   #validate possible_block
   possible_block = Block(possible_block_data)
-  if possible_block.is_valid():
+  if possible_block.isValid():
     #save to file to possible folder
     index = possible_block.index
     nonce = possible_block.nonce
@@ -208,25 +208,28 @@ def transacted():
     return jsonify(confirmed=True)
   else:
     #ditch it
+    utils.warning("transaction is not valid,hash is:",possible_transaction.hash)
     return jsonify(confirmed=False)
-
-@app.route('/balance/<string:address>/',methods=['GET'])
-def getBalance(address):
-  value = node.utxo.getBalance(address)
-  return jsonify({"address":address,"value":value})
-
 
 @app.route('/blockchain', methods=['GET'])
 def blockchainList():
-  local_chain = node.syncLocalChain() 
-  json_blocks = json.dumps(local_chain.block_list_dict())
-  return json_blocks
+  blocks = node.blockchain.blocks
+  return jsonify(utils.obj2dict(blocks)),200
 
+@app.route('/blockchain/<int:fromIndex>/<int:toIndex>', methods=['GET'])
+def getRangeBlocks(fromIndex,toIndex):
+  blocks = node.blockchain.findRangeBlocks(fromIndex,toIndex)
+  return jsonify(utils.obj2dict(blocks)),200
 
-@app.route('/block/<int:index>/',methods=['GET'])
-def getBlock(index):
-  block = node.blockchain.find_block_by_index(index)
-  return jsonify(utils.obj2dict(block))
+@app.errorhandler(404)
+def not_found(error):
+    return make_response(jsonify({'error': 'Not found this url'}), 404)
+
+#test url
+@app.route('/blockchain/<int:index>/',methods=['GET'])
+def getBlocks(index):
+  blocks = node.blockchain.findRangeBlocks(index,index)
+  return jsonify(utils.obj2dict(blocks))
   
 @app.route('/utxo/<string:address>/',methods=['GET'])
 def findUTXO(address):
@@ -243,11 +246,113 @@ def utxoReindex():
   utxoSet = node.resetUTXO()
   return jsonify(utils.obj2dict(utxoSet))
 
+@app.route('/balance/<string:address>/',methods=['GET'])
+def getBalance(address):
+  value = node.utxo.getBalance(address)
+  return jsonify({"address":address,"value":value})
 
-@app.errorhandler(404)
-def not_found(error):
-    return make_response(jsonify({'error': 'Not found'}), 404)
+@app.route('/possible/blocks', methods=['GET'])
+def getPossibleBlocks():
+  possibleBlocks = node.syncPossibleBlocks()
+  blocks=[]
+  for item in possibleBlocks:
+    blocks.append(item.to_dict()) 
+  data = json.dumps(blocks)
+  return data
 
+@app.route('/pool/transactions', methods=['GET'])
+def getTxPool():
+  txPool = node.txPoolSync() 
+  data = json.dumps(txPool)
+  return data
 
+@app.route('/lastblock',methods=['GET'])
+def lastblock():
+  newBlock=node.blockchain.lastblock()
+  return jsonify(utils.obj2dict(newBlock)),200
+
+@app.route('/mine',methods=['GET'])
+def mine():
+  node.syncOverallChain(save=False) 
+
+  t1=Transaction.newCoinbase(myWallete.address)
+  coinbase=utils.obj2dict(t1)
+  #mine
+  newBlock=node.mine(coinbase)
+  return jsonify(utils.obj2dict(newBlock,indent=2)),200
+#node function:list,register,unregister,sync
+@app.route('/node/list',methods=['GET'])
+def nodeList():
+   utils.warning("node.nodes",node.nodes)
+   response={
+      'nodes': list(node.nodes)
+   }
+   return jsonify(response),200
+
+@app.route('/node/sync',methods=['GET'])
+def nodeSync():
+  node.syncOverallNodes()
+  response={
+    'nodes': list(node.nodes)
+  }
+  return jsonify(response),200
+
+@app.route('/',methods=['GET'])
+def default():
+  return "hello youht"
+
+@app.route('/index',methods=['GET'])
+def react():
+  return render_template('index.html',data="youht")
+
+@app.route('/hash',methods=['GET'])
+def testHash():
+  result=[]
+  t1=time.time()
+  for i in range(50001):
+    temp="".join(random.sample(string.ascii_letters,
+                         random.randint(10,50)))
+    hash=hashlib.sha256(temp.encode()).hexdigest()
+    if i%10000==0:
+     result.append({"hash":hash,"min":(time.time()-t1)/60,"count":i})
+  t2=time.time()
+  return  jsonify({"totalMin":(t2-t1)/60,"result":result})
+
+@app.route('/wallete/<string:name>',methods=['GET'])
+def getWallete(name):
+  if name=='me':
+    wallete = Wallete(me)
+  else:
+    wallete = Wallete(name)
+  balance = node.utxo.getBalance(wallete.address)
+  response = {"address":wallete.address,
+              "pubkey":wallete.pubkey64D,
+              "balance":balance}
+  return jsonify(response)
+
+@app.route('/trade/<nameFrom>/<nameTo>/<amount>',methods=['GET'])
+def newTrade(nameFrom,nameTo,amount):
+  response =node.tradeTest(nameFrom,nameTo,float(amount))
+  return jsonify(response)
+
+@app.route('/syncToPool/<int:fromIndex>/<int:toIndex>',methods=['GET'])
+def syncToPool(fromIndex,toIndex):
+  cnt = len(node.nodes) - 1
+  step = (toIndex - fromIndex) // cnt
+  path = []
+  begin = fromIndex
+  end = fromIndex + step 
+  for i in range(cnt):
+    path.append("blockchain/{}/{}".format(begin,end))
+    begin = end +1
+    if begin+step > toIndex:
+      end = toIndex
+    else:  
+      end = begin+step
+  print("*****",cnt,step,path)
+  response = node.randomPeerHttp(cnt,path,3,node.syncToPool)
+  return jsonify(response)
+
+#start program
 if __name__ == '__main__':
   app.run(host=node.host, port=node.port,debug=True,threaded=True)

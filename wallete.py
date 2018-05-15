@@ -1,6 +1,6 @@
 
 from config import *
-import utils,os,hashlib
+import utils,os,hashlib,base64
 
 class Wallete(object):
   def __init__(self,name):
@@ -8,25 +8,27 @@ class Wallete(object):
       os.mkdir("%s%s"%(PRIVATE_DIR,name))
     except:
       pass
-    if not os.path.exists("%s%s/pvkey.pem"%(PRIVATE_DIR,name)):
-      self.key=(pvkey,pbkey)=utils.genRSAKey(
-             "%s%s/pvkey.pem"%(PRIVATE_DIR,name),
-             "%s%s/pbkey.pem"%(PRIVATE_DIR,name))
-      self.address=utils.sha256(pbkey)
+    if not os.path.exists("%s%s/prvkey.pem"%(PRIVATE_DIR,name)):
+      self.key=(prvkey,pubkey)=utils.genRSAKey(
+             "%s%s/prvkey.pem"%(PRIVATE_DIR,name),
+             "%s%s/pubkey.pem"%(PRIVATE_DIR,name))
+      self.address=utils.sha256(pubkey)
       with open("%s%s/%s"%(PRIVATE_DIR,name,self.address),"w") as f:
         pass
     else:
-      with open("%s%s/pvkey.pem"%(PRIVATE_DIR,name),"rb") as f:
-              pvkey = f.read()
-      with open("%s%s/pbkey.pem"%(PRIVATE_DIR,name),"rb") as f:
-              pbkey = f.read()
-      self.key=(pvkey,pbkey)=(pvkey,pbkey)
-      self.address=Wallete.address(pbkey)
+      
+      with open("%s%s/prvkey.pem"%(PRIVATE_DIR,name),"rb") as f:
+              prvkey = f.read()
+      with open("%s%s/pubkey.pem"%(PRIVATE_DIR,name),"rb") as f:
+              pubkey = f.read()
+      self.key=(prvkey,pubkey)=(prvkey,pubkey)
+      self.pubkey64D=base64.b64encode(self.key[1]).decode()
+      self.address=Wallete.address(pubkey)
       if not os.path.exists("%s%s/%s"%(PRIVATE_DIR,name,self.address)):
         print("warning : wallete address is changed excepted!")
   @staticmethod
-  def address(pbkey):
-    return utils.sha256(pbkey)
+  def address(pubkey):
+    return utils.sha256(pubkey)
 
 
    

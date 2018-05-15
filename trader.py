@@ -59,7 +59,9 @@ node=Node( {"entryNode":args.entryNode,
 node.syncOverallNodes()
 #sync blockchain
 node.syncOverallChain(save=True) 
-node.resetUTXO()
+temp = node.resetUTXO()
+
+utils.warning(utils.sha256(utils.obj2json(temp)))
 
 #make pvkey,pbkey,wallete address  
 youhtWallete=Wallete(me)
@@ -72,25 +74,13 @@ print(utils.obj2json(coinbaseTX))
 #UTXO=node.blockchain.findUTXO(youhtWallete.address)
 
 value=node.utxo.getBalance(youhtWallete.address)
-utils.warning("youht's wallete has {}".format(value))  
+utils.warning("{}'s wallete has {}".format(me,value))  
 value1=node.utxo.getBalance(jinliWallete.address)
 utils.warning("jinli's wallete has {}".format(value1))  
 
 
-newTX=Transaction.newTransaction(youhtWallete.key[0],youhtWallete.key[1],jinliWallete.key[1],5,node.utxo)
-if newTX:
-  newTXdict=utils.obj2dict(newTX)
-  for peer in node.nodes:
-    try:
-      res = requests.post("http://%s/transacted"%peer,
-                        json=newTXdict,timeout=10)
-      if res.status_code == 200:
-        print("%s successed."%peer)
-      else:
-        print("%s error is %s"%(peer,res.status_code))
-    except Exception as e:
-      print("%s error is %s"%(peer,e))  
-  utils.warning("transaction广播完成")
+node.tradeTest(me,'jinli',3)
+node.tradeTest(me,'youyc',3)
 
 #coinbase=utils.obj2dict(Transaction.newCoinbase(youhtWallete.address))
 #mine

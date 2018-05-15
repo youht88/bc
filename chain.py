@@ -41,33 +41,43 @@ class UTXO(object):
     self.utxoSet = utxoSet
     self.save()
     return utxoSet
-    
+      
   def update(self,block):
-    utxoSet=self.utxoSet
     for TX in block.data:
-      #ins
-      if TX.isCoinbase() == False:
-        for idx,txin in enumerate(TX.ins):
-          txin.prevHash,txin.index
+      self.updateWithTX(TX)
+    
+  def updateWithTX(self,TX):   
+    utxoSet=self.utxoSet
+    #ins
+    if TX.isCoinbase() == False:
+      for idx,txin in enumerate(TX.ins):
+        try:
           outs=utxoSet[txin.prevHash]
-          for i,out in enumerate(outs) :
-            if out["index"] == txin.index:
-              del outs[i]
-          if outs==[]:
+        except:
+          raise Exception("double pay")
+        for i,out in enumerate(outs) :
+          if out["index"] == txin.index:
+            del outs[i]
+        if outs==[]:
+          try:
             del utxoSet[txin.prevHash]
-          else:
-            utxoSet[txin.prevHash]=outs
-      #outs
-      unspendOutputs=[]
-      for idx,txout in enumerate(TX.outs):
-        unspendOutputs.append({
-                      "index":idx,
-                      "txout":TXout({"amount":txout.amount,
-                                     "outAddr":txout.outAddr})
-                                   })
-      if not unspendOutputs==[]:
-        utxoSet[TX.hash]=unspendOutputs
+          except:
+            raise Exception("double pay")
+        else:
+          utxoSet[txin.prevHash]=outs
+    #outs
+    unspendOutputs=[]
+    for idx,txout in enumerate(TX.outs):
+      unspendOutputs.append({
+                    "index":idx,
+                    "txout":TXout({"amount":txout.amount,
+                                   "outAddr":txout.outAddr})
+                                 })
+    if not unspendOutputs==[]:
+      utxoSet[TX.hash]=unspendOutputs
     self.utxoSet = utxoSet
+    return utxoSet
+
   def save(self):
     filename = '%s%s.json' % (UTXO_DIR,'utxo')
     try:
@@ -120,12 +130,12 @@ class UTXO(object):
 class Chain(object):
   def __init__(self, blocks):
     self.blocks = blocks
-  def is_valid(self):
+  def isValid(self):
     for index, cur_block in enumerate(self.blocks[1:]):
       prev_block = self.blocks[index]
       if prev_block.index+1 != cur_block.index:
         return False
-      if not cur_block.is_valid():
+      if not cur_block.isValid():
         #checks the hash
         utils.danger("cur_block {} false".format(index))
         return False
@@ -135,9 +145,9 @@ class Chain(object):
         return False
     return True
 
-  def self_save(self):
+  def save(self):
     for b in self.blocks:
-      b.self_save()
+      b.save()
     return True
 
   def find_block_by_index(self, index):
@@ -197,23 +207,17 @@ class Chain(object):
   def maxindex(self):
     return self.blocks[-1].index
   def add_block(self, new_block):
-    '''
-      Put the new block into the index that the block is asking.
-      That is, if the index is of one that currently exists, the new block
-      would take it's place. Then we want to see if that block is valid.ls
-      If it isn't, then we ditch the new block and return False.
-    '''
-    '''
-      When we add a block, we want to find the block with the same index,
-      remove the current block and the rest of the blocks with higher index,
-      and
-    '''
     if new_block.index > len(self):
       pass
     self.blocks.append(new_block)
-
     return True
-
-  def block_list_dict(self):
-    return [utils.obj2dict(b) for b in self.blocks]
-    
+  def findRangeBlocks(self,fromIndex,toIndex):
+    maxindex = self.maxindex()
+    if fromIndex<0 or fromIndex>maxindex:
+      return False
+    if toIndex<fromIndex or toIndex>maxindex:
+      return False
+    blocks=[]
+    for i in range(fromIndex,toIndex+1):
+      blocks.append(self.blocks[i])
+    return blocks

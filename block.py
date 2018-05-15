@@ -56,13 +56,19 @@ class Block(object):
     self.hash = new_hash
     return new_hash
 
-  def self_save(self):
+  def save(self):
     index_string = str(self.index).zfill(6) 
     filename = '%s%s.json' % (CHAINDATA_DIR, index_string)
     with open(filename, 'w') as block_file:
       utils.obj2jsonFile(self,block_file,sort_keys=True)
+  def saveToPool(self):
+    index = self.index
+    nonce = self.nonce
+    filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
+    with open(filename, 'w') as block_file:
+      utils.obj2jsonFile(self, block_file,sort_keys=True)
 
-  def is_valid(self):
+  def isValid(self):
     if self.index == 0:
       return True
     utils.debug("danger","verify block #"+str(self.index))
