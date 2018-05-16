@@ -92,36 +92,12 @@ node.syncOverallChain(save=True)
 #sync utxo
 node.resetUTXO()
 
-#start miner thread
-'''
-import threading
-import time
-
-class StoppableThread(threading.Thread):
-    def __init__(self, event):
-        super(StoppableThread, self).__init__()
-        self.event = event
-
-    def run(self):
-        while True:
-            print('OK')
-            if self.event.wait(timeout=1): # 这里的timeout可以是1分钟
-                break # 表示有人通知要退出了
-
-event = threading.Event()
-t = StoppableThread(event)
-t.start()
-time.sleep(5)
-event.set()
-t.join()
-'''
-
 def minerProcess():
   while True:
     try:
       txPoolFiles=glob.glob(
          os.path.join(BROADCASTED_TRANSACTION_DIR, '*.json'))
-      if len(txPoolFiles)>=2:
+      if len(txPoolFiles)>=TRANSACTION_TO_BLOCK:
         print ('the arg is:%s,%s\r' % (len(txPoolFiles),time.time()))
         t1=Transaction.newCoinbase(myWallete.address)
         coinbase=utils.obj2dict(t1)
@@ -132,17 +108,22 @@ def minerProcess():
       #print("txPool=",len(txPoolFiles))
     except Exception as e:
       print(e)
+      #raise e
 
 def blockerProcess():
   while True:
     #if self.event.wait(timeout=1):
     #  break
-    if threading.enumerate()[-1].name=='Thread-1':
+    if threading.enumerate()[-1].name=='Thread-1': #debug调试时使用
       try:
-        node.blockPoolSync()
-        #print("blockPool=",node.blockchain.maxindex())
+        maxindex = node.blockchain.maxindex()
+        fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
+        if len(fileset)>=1:        
+          node.blockPoolSync()
+        print("blockPool=",node.blockchain.maxindex())
       except Exception as e:
         print(e)
+        raise e
     time.sleep(10)
   
 event = threading.Event()
@@ -179,7 +160,6 @@ def nodeUnregister():
 @app.route('/mined', methods=['POST'])
 def mined():
   possible_block_data = request.get_json()
-  print("/"*40,"\n",possible_block_data)
   #validate possible_block
   possible_block = Block(possible_block_data)
   if possible_block.isValid():
@@ -251,15 +231,6 @@ def getBalance(address):
   value = node.utxo.getBalance(address)
   return jsonify({"address":address,"value":value})
 
-@app.route('/possible/blocks', methods=['GET'])
-def getPossibleBlocks():
-  possibleBlocks = node.syncPossibleBlocks()
-  blocks=[]
-  for item in possibleBlocks:
-    blocks.append(item.to_dict()) 
-  data = json.dumps(blocks)
-  return data
-
 @app.route('/pool/transactions', methods=['GET'])
 def getTxPool():
   txPool = node.txPoolSync() 
@@ -273,8 +244,6 @@ def lastblock():
 
 @app.route('/mine',methods=['GET'])
 def mine():
-  node.syncOverallChain(save=False) 
-
   t1=Transaction.newCoinbase(myWallete.address)
   coinbase=utils.obj2dict(t1)
   #mine
@@ -349,7 +318,6 @@ def syncToPool(fromIndex,toIndex):
       end = toIndex
     else:  
       end = begin+step
-  print("*****",cnt,step,path)
   response = node.randomPeerHttp(cnt,path,3,node.syncToPool)
   return jsonify(response)
 

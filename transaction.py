@@ -119,7 +119,7 @@ class Transaction(object):
       return self.ins[0].index==-1
    
     def sign(self,prvkey,prevTXs):
-      if iscoinbase(self):
+      if self.isCoinbase():
          return
       
     def isValid(self):

@@ -113,22 +113,22 @@ class Node(object):
     
   #sync nodes,chain,blocks,transactions
   def syncLocalChain(self):
-    local_chain = Chain([])
+    localChain = Chain([])
     #We're assuming that the folder and at least initial block exists
     if os.path.exists(CHAINDATA_DIR):
       fileset=glob.glob(
          os.path.join(CHAINDATA_DIR, '*.json'))
       fileset.sort()
       for filepath in fileset:
-        with open(filepath, 'r') as block_file:
+        with open(filepath, 'r') as blockFile:
           try:
-            block_info = json.load(block_file)
+            blockDict = json.load(blockFile)
           except:
             print(filepath+" error!")
-            return local_chain
-          local_block = Block(block_info)
-          local_chain.add_block(local_block)
-    return local_chain
+            return localChain
+          localBlock = Block(blockDict)
+          localChain.addBlock(localBlock)
+    return localChain
 
   def httpProcess(self,peer,url,timeout,fun):
     try:
@@ -190,15 +190,15 @@ class Node(object):
       #try to connect to peer
       if peer == self.me:
         continue
-      peer_blockchain_url = "http://"+peer + '/blockchain'
+      peerUrl = "http://"+peer + '/blockchain'
       try:
-        r = requests.get(peer_blockchain_url,timeout=3)
+        r = requests.get(peerUrl,timeout=3)
         try:
           peer_blockchain_dict = r.json()
-          utils.danger(len(peer_blockchain_dict))
+          utils.danger(peerUrl," has ",len(peer_blockchain_dict))
           peer_blocks = [Block(bdict) for bdict in peer_blockchain_dict]
           peer_chain = Chain(peer_blocks)
-          utils.danger(peer_chain.isValid())
+          utils.danger(peerUrl," is valid ",peer_chain.isValid())
           if peer_chain.isValid() and peer_chain > best_chain:
             best_chain = peer_chain
         except Exception as e:
@@ -239,15 +239,24 @@ class Node(object):
             txPoolDict = json.load(txFile)
           except:
             print("error on:",filepath)
-          utils.warning("del:",filepath)
-          os.remove(filepath)  
           txPool.append(
             Transaction.parseTransaction(txPoolDict))
     return txPool
-
+  def txPoolRemove(self,block):
+    #remove transactions in txPool
+    if block:
+      for TX in block.data:
+        if TX.isCoinbase():
+          continue
+        txFile= os.path.join(BROADCASTED_TRANSACTION_DIR,TX.hash+".json")
+        try:
+          os.remove(txFile)
+          utils.warning("del:",txFile)
+        except:
+          utils.warning("del file not found:",txFile)
+          pass
   def blockPoolSync(self):
     maxindex = self.blockchain.maxindex()
-    blockPool = []
     if os.path.exists(BROADCASTED_BLOCK_DIR):
       fileset=glob.glob(
          os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
@@ -258,15 +267,17 @@ class Node(object):
             blockDict = json.load(blockFile)
             block = Block(blockDict)
             if block.isValid():
-              block.save()
-              self.blockchain.add_block(block)
-              self.updateUTXO(block)
+              if self.blockchain.addBlock(block):
+                self.txPoolRemove(block)
+                block.save()
+                self.updateUTXO(block)
           except Exception as e:
             print("error on:",filepath,e)
           finally:
             print("current blockchain high:",self.blockchain.maxindex())
             os.remove(filepath)
       elif len(fileset)>1:
+        #fork occurred
         pass
         
         
@@ -318,9 +329,7 @@ class Node(object):
     txPoolDict.append(coinbase)
     for item in txPool:
       txPoolDict.append(utils.obj2dict(item,sort_keys=True))
-    print("mine for block sync")
     currentChain = self.syncLocalChain() #gather last node
-    print("mine for block sync done")
     prevBlock = currentChain.lastblock()
     
     #mine a block with a valid nonce
@@ -330,8 +339,15 @@ class Node(object):
     prev_hash = prevBlock.hash
     nonce = 0  
     blockDict = utils.args2dict(CONVERSIONS=BLOCK_VAR_CONVERSIONS,index=index, timestamp=timestamp, data=data, prev_hash=prev_hash, nonce=nonce)
+    utils.warning("begin mine...",index)
     newBlock = self.findNonce(Block(blockDict))
-  
+    if newBlock==None:
+      utils.warning("other miner mined")
+      return None
+    utils.warning("end mine.",index)
+    #remove transaction from txPool
+    self.txPoolRemove(newBlock) 
+    
     blockDict = utils.obj2dict(newBlock)
     
     #push to blockPool
@@ -352,6 +368,7 @@ class Node(object):
         print("%s error is %s"%(peer,e))  
     utils.warning("mine广播完成")
     
+    #以下由blockPoolSync处理
     #newBlock.save()
     #self.blockchain.add_block(newBlock)
     #self.updateUTXO(newBlock)
@@ -360,15 +377,21 @@ class Node(object):
   
   def findNonce(self,newBlock):
     print("mining for block %s" % newBlock.index)
-    newBlock.update_self_hash()#calculate_hash(index, prev_hash, data, timestamp, nonce)
+    newBlock.updateHash()#calculate_hash(index, prev_hash, data, timestamp, nonce)
     newBlock.diffcult = NUM_ZEROS
     while str(newBlock.hash[0:NUM_ZEROS]) != '0' * NUM_ZEROS:
+      #if not genesis and blockchain had updated by other node's block then stop
+      if newBlock.index!=0: 
+        #if self.blockchain.maxindex() >= newBlock.index:
+        fileset=glob.glob(
+         os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(newBlock.index)))
+        if len(fileset)>=1:
+          return None
       newBlock.nonce += 1
-      newBlock.update_self_hash()
-  
+      newBlock.updateHash()
+      
     print ("block %s mined. Nonce: %s , hash: %s" % (newBlock.index, newBlock.nonce,newBlock.hash))
     utils.success("block #"+
           str(newBlock.index)+
           " is",newBlock.isValid())
     return newBlock #we mined the block. We're going to want to save it
-

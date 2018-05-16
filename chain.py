@@ -1,6 +1,7 @@
 from block import Block
 from transaction import TXout
 import utils
+import json
 
 from config import *
 
@@ -35,7 +36,7 @@ class UTXO(object):
             spendInputs.append({"hash":txin.prevHash,"index":txin.index})
         if not unspendOutputs==[]:
           utxoSet[TX.hash]=unspendOutputs
-      block = blockchain.find_block_by_hash(block.prev_hash)
+      block = blockchain.findBlockByHash(block.prev_hash)
       if not block:
         break
     self.utxoSet = utxoSet
@@ -54,7 +55,7 @@ class UTXO(object):
         try:
           outs=utxoSet[txin.prevHash]
         except:
-          raise Exception("double pay")
+          raise Exception("double spend")
         for i,out in enumerate(outs) :
           if out["index"] == txin.index:
             del outs[i]
@@ -130,18 +131,19 @@ class UTXO(object):
 class Chain(object):
   def __init__(self, blocks):
     self.blocks = blocks
+ 
   def isValid(self):
     for index, cur_block in enumerate(self.blocks[1:]):
       prev_block = self.blocks[index]
       if prev_block.index+1 != cur_block.index:
+        utils.danger("index error",prev_block.index,cur_block.index)
         return False
       if not cur_block.isValid():
         #checks the hash
         utils.danger("cur_block {} false".format(index))
         return False
-      utils.debug("warning",
-        "verify prev block hash is this block prev_hash")
       if prev_block.hash != cur_block.prev_hash:
+        utils.danger("block ",cur_block.index," hash error",prev_block.hash,cur_block.prev_hash)
         return False
     return True
 
@@ -150,13 +152,13 @@ class Chain(object):
       b.save()
     return True
 
-  def find_block_by_index(self, index):
+  def findBlockByIndex(self, index):
     if len(self) >= index + 1:
       return self.blocks[index]
     else:
       return False
 
-  def find_block_by_hash(self, hash):
+  def findBlockByHash(self, hash):
     for b in self.blocks:
       if b.hash == hash:
         return b
@@ -171,11 +173,36 @@ class Chain(object):
         if TX.hash == hash: 
           transaction = TX
           break
-      block = self.find_block_by_hash(block.prev_hash)
+      block = self.findBlockByHash(block.prev_hash)
       if not block:
         break
     return transaction
 
+  def lastblock(self):
+    return self.blocks[-1]
+  def maxindex(self):
+    return self.blocks[-1].index
+  def addBlock(self, new_block):
+    if new_block.index!=0:
+      if new_block.index > len(self) :
+        utils.warning("new block",new_block.index,"has error index.")
+        return False  
+      if new_block.prev_hash != self.blocks[new_block.index - 1].hash:
+        utils.warning("new block",new_block.index,"has error prev_hash.")
+        return False
+    self.blocks.append(new_block)
+    return True
+  def findRangeBlocks(self,fromIndex,toIndex):
+    maxindex = self.maxindex()
+    if fromIndex<0 or fromIndex>maxindex:
+      return False
+    if toIndex<fromIndex or toIndex>maxindex:
+      return False
+    blocks=[]
+    for i in range(fromIndex,toIndex+1):
+      blocks.append(self.blocks[i])
+    return blocks
+    
   def __len__(self):
     return len(self.blocks)
 
@@ -202,22 +229,3 @@ class Chain(object):
   def __le__(self, other):
     return self.__eq__(other) or self.__lt__(other)
 
-  def lastblock(self):
-    return self.blocks[-1]
-  def maxindex(self):
-    return self.blocks[-1].index
-  def add_block(self, new_block):
-    if new_block.index > len(self):
-      pass
-    self.blocks.append(new_block)
-    return True
-  def findRangeBlocks(self,fromIndex,toIndex):
-    maxindex = self.maxindex()
-    if fromIndex<0 or fromIndex>maxindex:
-      return False
-    if toIndex<fromIndex or toIndex>maxindex:
-      return False
-    blocks=[]
-    for i in range(fromIndex,toIndex+1):
-      blocks.append(self.blocks[i])
-    return blocks

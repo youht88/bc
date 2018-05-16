@@ -23,10 +23,10 @@ class Block(object):
       #we're throwin this in for generation
       self.nonce = 0
     if not hasattr(self, 'hash'): #in creating the first block, needs to be removed in future
-      self.hash = self.update_self_hash()
+      self.hash = self.updateHash()
     #print("index,diffcult,hash",self.index,self.diffcult,self.hash)
     
-  def header_string(self):
+  def headerString(self):
     return "".join([str(self.index),
         self.prev_hash,
         self.getMerkleRoot(),
@@ -49,9 +49,9 @@ class Block(object):
            str(nonce)])
   '''
   
-  def update_self_hash(self):
+  def updateHash(self):
     sha = hashlib.sha256()
-    sha.update(self.header_string().encode())
+    sha.update(self.headerString().encode())
     new_hash = sha.hexdigest()
     self.hash = new_hash
     return new_hash
@@ -73,7 +73,7 @@ class Block(object):
       return True
     utils.debug("danger","verify block #"+str(self.index))
     utils.debug("danger","verify proof of work")
-    self.update_self_hash()
+    self.updateHash()
     if not (str(self.hash[0:self.diffcult]) == '0' * self.diffcult):
       return False
     utils.debug("success","%s is truly worked"%self.hash)
@@ -85,20 +85,6 @@ class Block(object):
     return True
       
     
-  def __repr__(self):
-    return "Block<index: %s>, <hash: %s>" % (self.index, self.hash)
-
-  def __eq__(self, other):
-    return (self.index == other.index and
-       self.timestamp == other.timestamp and
-       self.prev_hash == other.prev_hash and
-       self.hash == other.hash and
-       self.data == other.data and
-       self.nonce == other.nonce)
-
-  def __ne__(self, other):
-    return not self.__eq__(other)
-
   def __gt__(self, other):
     return self.timestamp < other.timestamp
 
