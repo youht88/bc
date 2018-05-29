@@ -17,19 +17,25 @@ import string,random,hashlib,time
 
 import threading
 import glob
+import base64
+
+from network import Gossip
 
 #args check & use help
 parser=argparse.ArgumentParser()
-parser.add_argument("--entryNode",type=str,help="indicate which node to entry,e.g. ip|host:port ")
+parser.add_argument("--entryNode","-e",type=str,help="indicate which node to entry,e.g. ip|host:port ")
 parser.add_argument("--me",type=str,help="indicate who am I,e.g. ip|host:port .Default to search 'me' file")
 parser.add_argument("--host",type=str,default="0.0.0.0",help="default ip is 0.0.0.0")
 parser.add_argument("--port",type=int,default="5000",help="default port is 5000")
 parser.add_argument("--name",type=str,help="name of wallete")
+parser.add_argument("--full",action="store_true",help="full sync")
+parser.add_argument("--syncNode",action="store_true",help="if sync overall node")
 
 args=parser.parse_args()
 
 #make and change work dir use args.me,otherwise use current dir
 os.chdir(ROOT_DIR)
+
 me=args.me
 if me==None:
   try:
@@ -65,6 +71,7 @@ if not os.path.exists(BROADCASTED_BLOCK_DIR):
 if not os.path.exists(BROADCASTED_TRANSACTION_DIR):
   os.makedirs(BROADCASTED_TRANSACTION_DIR)
 
+
 #make pvkey,pbkey,wallete address  
 myWallete=Wallete(args.name)
     
@@ -73,22 +80,59 @@ node=Node({"host":args.host,
            "port":args.port,
            "entryNode":args.entryNode,
            "me":args.me})
-    
+               
 app = Flask(__name__)
 
 #register me and get all alive ndoe list
-node.syncOverallNodes()
+if args.syncNode:
+  node.syncOverallNodes()
+
+utils.warning("1.node.nodes",node.nodes)
+myGossip = Gossip(node.nodes,me)
+utils.warning("2.node.nodes",node.nodes)
 
 #genesis block ,only first node first time to use 
 localChain = node.syncLocalChain()
 if len(localChain.blocks)==0:
-  t1=Transaction.newCoinbase(myWallete.address)
-  coinbase=utils.obj2dict(t1)
+  #get zero block from entryNode
+  res=node.httpProcess("http://"+node.entryNode+"/blockchain/0",3)
+  try:
+    result=res["response"].json()[0]
+    genesisBlock=Block(result)
+    if genesisBlock.isValid():
+      genesisBlock.save()
+    else:
+      raise Exception("error on import genesisBlock")
+  except:
+    t1=Transaction.newCoinbase(myWallete.address)
+    coinbase=utils.obj2dict(t1)
+    node.genesisBlock(coinbase)
 
-  node.genesisBlock(coinbase)
 
 #sync blockchain
-node.syncOverallChain(save=True) 
+bestIndex = node.syncOverallChain(args.full) 
+
+def blockerProcess():
+  while True:
+    #if self.event.wait(timeout=1):
+    #  break
+    if len(threading.enumerate())==4: #debug调试时使用
+      try:
+        maxindex = node.blockchain.maxindex()
+        fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
+        if len(fileset)>=1:        
+          node.blockPoolSync()
+        time.sleep(2)
+        #print("blockPool={},threads={}".format(node.blockchain.maxindex(),len(threading.enumerate())))
+      except Exception as e:
+        #print(e)
+        raise e
+
+blocker=utils.CommonThread(blockerProcess,())
+blocker.setDaemon(True)
+blocker.start()
+
+print("miner is ready")
 #sync utxo
 node.resetUTXO()
 
@@ -104,39 +148,15 @@ def minerProcess():
         #mine
         newBlock=node.mine(coinbase)
       
-      time.sleep(10)
+      time.sleep(2)
       #print("txPool=",len(txPoolFiles))
     except Exception as e:
       print(e)
       #raise e
 
-def blockerProcess():
-  while True:
-    #if self.event.wait(timeout=1):
-    #  break
-    if threading.enumerate()[-1].name=='Thread-1': #debug调试时使用
-      try:
-        maxindex = node.blockchain.maxindex()
-        fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
-        if len(fileset)>=1:        
-          node.blockPoolSync()
-        print("blockPool=",node.blockchain.maxindex())
-      except Exception as e:
-        print(e)
-        raise e
-    time.sleep(10)
-  
-event = threading.Event()
-
-miner = utils.CommonThread(name="MineThread",func=minerProcess,event=event,args=())
+miner = utils.CommonThread(minerProcess,())
 miner.setDaemon(True)
 miner.start()
-
-#blocker = BlockThread(event)
-blocker=utils.CommonThread(name="BlockThread",func=blockerProcess,event=event,args=())
-blocker.setDaemon(True)
-blocker.start()
-
 
 @app.route('/node/register',methods=['GET'])
 def nodeRegister():
@@ -201,6 +221,10 @@ def getRangeBlocks(fromIndex,toIndex):
   blocks = node.blockchain.findRangeBlocks(fromIndex,toIndex)
   return jsonify(utils.obj2dict(blocks)),200
 
+@app.route('/blockchain/maxindex', methods=['GET'])
+def getBlockchainMaxindex():
+  return str(node.blockchain.maxindex()),200
+
 @app.errorhandler(404)
 def not_found(error):
     return make_response(jsonify({'error': 'Not found this url'}), 404)
@@ -213,7 +237,7 @@ def getBlocks(index):
   
 @app.route('/utxo/<string:address>/',methods=['GET'])
 def findUTXO(address):
-  utxo = node.utxo.findUTXO(address)
+  utxo = node.blockchain.utxo.findUTXO(address)
   return jsonify(utils.obj2dict(utxo))
   
 @app.route('/transaction/<string:hash>/',methods=['GET'])
@@ -226,10 +250,11 @@ def utxoReindex():
   utxoSet = node.resetUTXO()
   return jsonify(utils.obj2dict(utxoSet))
 
-@app.route('/balance/<string:address>/',methods=['GET'])
-def getBalance(address):
-  value = node.utxo.getBalance(address)
-  return jsonify({"address":address,"value":value})
+@app.route('/utxo/get/',methods=['GET'])
+def utxoGet():
+  utxoSet = node.blockchain.utxo
+  utxoSummary = node.blockchain.utxo.getSummary()
+  return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet)})
 
 @app.route('/pool/transactions', methods=['GET'])
 def getTxPool():
@@ -287,38 +312,98 @@ def testHash():
   t2=time.time()
   return  jsonify({"totalMin":(t2-t1)/60,"result":result})
 
-@app.route('/wallete/<string:name>',methods=['GET'])
-def getWallete(name):
-  if name=='me':
-    wallete = Wallete(me)
-  else:
-    wallete = Wallete(name)
-  balance = node.utxo.getBalance(wallete.address)
+@app.route('/wallete/me',methods=['GET'])
+def getWallete():
+  wallete = Wallete(me)
+  balance = node.blockchain.utxo.getBalance(wallete.address)
   response = {"address":wallete.address,
               "pubkey":wallete.pubkey64D,
               "balance":balance}
   return jsonify(response)
 
+@app.route('/wallete/<string:address>/',methods=['GET'])
+def getBalance(address):
+  if len(address)==64:
+    balance = node.blockchain.utxo.getBalance(address)
+    return jsonify({"address":address,"blance":balance})
+  else:
+    wallete = Wallete(address)
+    balance = node.blockchain.utxo.getBalance(wallete.address)
+    return jsonify({"address":wallete.address,"blance":balance})
+
+@app.route('/wallete/create/<string:name>',methods=['GET'])
+def createWallete(name):
+  if name=='me':
+    wallete = Wallete(me)
+  else:
+    wallete = Wallete(name)
+  balance = node.blockchain.utxo.getBalance(wallete.address)
+  response = {"address":wallete.address,
+              "pubkey":wallete.pubkey64D,
+              "balance":balance}
+  return jsonify(response)
+
+@app.route('/wallete/reset/<string:name>',methods=['GET'])
+def syncWallete(name):
+  result=node.httpProcess("http://"+name+"/wallete/me")
+  dict=result["response"].json()
+  address = dict["address"]
+  pubkey64D = dict["pubkey"]
+  try:
+    os.mkdir("%s%s"%(PRIVATE_DIR,name))
+  except:
+    pass
+  try:
+    with open("%s%s/%s"%(PRIVATE_DIR,name,address),"w") as f:
+      pass
+    with open("%s%s/pubkey.pem"%(PRIVATE_DIR,name),"wb") as f:
+      f.write(base64.b64decode(pubkey64D.encode()))
+  except Exception as e:
+    raise e
+    return "error on wallete/reset/"+name
+  return jsonify(dict)
+
 @app.route('/trade/<nameFrom>/<nameTo>/<amount>',methods=['GET'])
 def newTrade(nameFrom,nameTo,amount):
   response =node.tradeTest(nameFrom,nameTo,float(amount))
-  return jsonify(response)
+  if response:
+    return jsonify(response)
+  else:
+    return "not have enouth money"
 
-@app.route('/syncToPool/<int:fromIndex>/<int:toIndex>',methods=['GET'])
-def syncToPool(fromIndex,toIndex):
-  cnt = len(node.nodes) - 1
-  step = (toIndex - fromIndex) // cnt
-  path = []
-  begin = fromIndex
-  end = fromIndex + step 
-  for i in range(cnt):
-    path.append("blockchain/{}/{}".format(begin,end))
-    begin = end +1
-    if begin+step > toIndex:
-      end = toIndex
-    else:  
-      end = begin+step
-  response = node.randomPeerHttp(cnt,path,3,node.syncToPool)
+@app.route('/trade/utxo',methods=['GET'])
+def getTradeUTXO():
+  utxoSet = node.tradeUTXO.utxoSet
+  utxoSummary = node.tradeUTXO.getSummary()
+  return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet)})
+  
+@app.route('/client/<key>/<value>',methods=['GET'])
+def cli(key,value):
+  t1=utils.CommonThread(myGossip.cli,(key,value))
+  t1.start()
+  t1.join()
+  #myGossip.cli(key,value)
+  return t1.getResult()
+
+@app.route('/syn1/<key>/<valHash>/<node>',methods=['GET'])
+def syn1(key,valHash,node):
+  utils.CommonThread(myGossip.syn1,(key,valHash,node)).start()
+  #myGossip.syn1(key,valHash,node)
+  return "syn1 ok"
+
+@app.route('/ack/<key>/<node>/',methods=['GET'])
+def ack(key,node):
+  utils.CommonThread(myGossip.ack,(key,node)).start()
+  return "ack ok"
+  
+@app.route('/syn2/<key>/<value>/<node>',methods=['GET'])
+def syn2(key,value,node):
+  utils.CommonThread(myGossip.syn2,(key,value,node)).start()
+  return "syn2 ok"
+  
+@app.route('/getValue/<key>',methods=['GET'])
+def getValue(key):
+  response = myGossip.getValue(key)
   return jsonify(response)
 
 #start program

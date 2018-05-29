@@ -12,7 +12,7 @@ import json
 
 from config import *
 
-import threading,queue
+import threading,queue,multiprocessing
 
 def genRSAKey(prvfile="private.pem",pubfile="public.pem"):
   #only a sample for test
@@ -195,13 +195,27 @@ def obj2dict(obj,sort_keys=True,indent=None):
   return json.loads(obj2json(obj,sort_keys=sort_keys,indent=indent))
   
 class CommonThread(threading.Thread):
+    def __init__(self,func,args):
+     super(CommonThread,self).__init__()        
+     self.func  = func
+     self.args  = args
+    def run(self):
+      self.result = self.func(*self.args)
+    def setEvent(self,event):
+      self.event = event
+    def getResult(self):
+      return self.result
+
+class CommonProcess(multiprocessing.Process):
     def __init__(self,name,func,event,args):
-      super(CommonThread,self).__init__(name=name)
+      super(CommonProcess,self).__init__(name=name)
       self.func  = func
       self.event = event
       self.args  = args
     def run(self):
-      self.func(*self.args)
+      self.result = self.func(*self.args)
+    def getResult(self):
+      return self.result
 
 
 

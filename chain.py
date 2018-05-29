@@ -2,6 +2,7 @@ from block import Block
 from transaction import TXout
 import utils
 import json
+import os
 
 from config import *
 
@@ -78,7 +79,40 @@ class UTXO(object):
       utxoSet[TX.hash]=unspendOutputs
     self.utxoSet = utxoSet
     return utxoSet
-
+  def updateAfterRemove(self,prevTXs,block):
+    for TX in block.data:
+      self.updateWithTXAfterRemove(prevTXs,TX)
+  def updateWithTXAfterRemove(self,prevTXs,TX):
+    utxoSet=self.utxoSet
+    #outs
+    outputs=utxoSet[TX.hash]
+    for idx,txout in enumerate(TX.outs):
+      for idx1,output in enumerate(outputs):
+        if output["index"]==idx:
+          del outputs[idx1]
+          break
+    if outputs==[]:
+      del utxoSet[TX.hash]        
+    else:
+      utxoSet[TX.hash]=outputs
+    #ins
+    if TX.isCoinbase() == False:
+      for idx,txin in enumerate(TX.ins):
+        try:
+          outs=utxoSet[txin.prevHash]
+        except:
+          outs=[]
+        prevTX=prevTXs[txin.prevHash]
+        prevOuts = prevTX.outs
+        outs.append({
+            "index":txin.index,
+            "txout":TXout({
+                "amount" : prevTX.outs[txin.index].amount,
+                "outAddr": prevTX.outs[txin.index].outAddr})
+                        })
+        utxoSet[txin.prevHash] = outs
+    self.utxoSet = utxoSet
+    return utxoSet
   def save(self):
     filename = '%s%s.json' % (UTXO_DIR,'utxo')
     try:
@@ -113,6 +147,15 @@ class UTXO(object):
       for out in outs:
         total = total + out["txout"].amount
     return total
+  def getSummary(self):
+    total=0
+    txs=0
+    for txHash in self.utxoSet:
+      txs +=1
+      outs = self.utxoSet[txHash]
+      for out in outs:
+        total += out["txout"].amount
+    return {"txs":txs,"total":total}
   def findSpendableOutputs(self,address,amount):
     acc=0
     unspend = {}
@@ -177,7 +220,17 @@ class Chain(object):
       if not block:
         break
     return transaction
-
+  def findPrevTransactions(self,block):
+    transactions={}
+    for TX in block.data:
+      #忽略coinbase
+      if TX.isCoinbase():
+        continue
+      for ins in TX.ins:
+        transaction = self.findTransaction(ins.prevHash)
+        if transaction:
+          transactions[TX.hash]=transaction
+    return transactions
   def lastblock(self):
     return self.blocks[-1]
   def maxindex(self):
@@ -190,8 +243,16 @@ class Chain(object):
       if new_block.prev_hash != self.blocks[new_block.index - 1].hash:
         utils.warning("new block",new_block.index,"has error prev_hash.")
         return False
+    #blockDict = utils.obj2dict(new_block)
+    #self.blocks.append(Block(blockDict))
     self.blocks.append(new_block)
     return True
+  def removeBlock(self,old_block):
+    index = old_block.index
+    data  = old_block.data
+    del self.blocks[index]
+    prevTXs=self.findPrevTransactions(old_block)
+    self.utxo.updateAfterRemove(prevTXs,old_block)
   def findRangeBlocks(self,fromIndex,toIndex):
     maxindex = self.maxindex()
     if fromIndex<0 or fromIndex>maxindex:
@@ -202,7 +263,18 @@ class Chain(object):
     for i in range(fromIndex,toIndex+1):
       blocks.append(self.blocks[i])
     return blocks
-    
+  def moveBlockToPool(self,index):
+    index_string = str(index).zfill(6) 
+    filename = '%s%s.json' % (CHAINDATA_DIR, index_string)
+    with open(filename, 'r') as block_file:
+      block = Block(json.load(block_file))
+    try:
+      os.remove(filename)
+    except:
+      pass
+    self.removeBlock(block)
+    block.saveToPool()
+
   def __len__(self):
     return len(self.blocks)
 

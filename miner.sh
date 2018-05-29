@@ -1,0 +1,1 @@
+nohup python3 /bc/miner.py >miner.log 2>&1 &

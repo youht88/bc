@@ -67,7 +67,12 @@ class Block(object):
     filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
     with open(filename, 'w') as block_file:
       utils.obj2jsonFile(self, block_file,sort_keys=True)
-
+  def removeFromPool(self):
+    index = self.index
+    nonce = self.nonce
+    filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
+    os.remove(filename)
+    
   def isValid(self):
     if self.index == 0:
       return True

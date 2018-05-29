@@ -1,6 +1,6 @@
 import os
 import json
-from urllib.parse import urlparse
+import urllib.parse as urlparse
 import requests
 import datetime as date
 import glob
@@ -16,6 +16,7 @@ from wallete import Wallete
 import threading
 import time
 import random
+import copy
 
 
 class Node(object):
@@ -67,6 +68,19 @@ class Node(object):
   def checkNodes(self):
     utils.warning(time.time(),"mark")
     threading.Timer(60,self.checkNodes).start()
+  def getRandom(self,percent):
+    #find n% random nodes without me 
+    if percent<0 or percent>1:
+      return []
+    nodes=list(self.nodes)
+    try:
+      nodes.remove(self.me)
+    except:
+      pass
+    cnt = round(len(nodes)*percent)
+    nodes = random.sample(nodes,cnt)  
+    return nodes
+    
   def syncOverallNodes(self):
     #self.checkNodes()
     doneNodes=self.nodes
@@ -130,101 +144,141 @@ class Node(object):
           localChain.addBlock(localBlock)
     return localChain
 
-  def httpProcess(self,peer,url,timeout,fun):
+  def httpProcess(self,url,timeout=3,cb=None,cbArgs=None):
     try:
+      result = {"url":url,"response":{}}
+      peer = urlparse.urlsplit(url).netloc
       res = requests.get(url,timeout=timeout)
       try:
-        fun(res,url)
+        if cb:
+          result = cb(res,url,cbArgs)
+        else:
+          result = {"url":url,"response":res}
       except Exception as e:
-        utils.danger("error on execute ",fun.__name__,e)
+        utils.danger("error on execute ",cb.__name__,e)
+        raise e
     except requests.exceptions.ConnectionError:
       utils.danger("Peer at %s not running. Continuing to next peer." % peer)
     except requests.exceptions.ReadTimeout:
       utils.warning("Peer at %s timeout. Continuing to next peer." % peer)
+    except Exception as e:
+      utils.warning("Peer at %s error."% peer,e)
     else:
       utils.success("Peer at %s is running. " % peer)
-  
-  def randomPeerHttp(self,cnt,path,timeout,fun,*args):
-    nodes=list(self.nodes)
-    utils.warning(nodes,self.me)
-    try:
-      nodes.remove(self.me)
-    except:
-      pass
-    if len(nodes)>=cnt:
-      cnt=cnt
-    else:
-      cnt=len(nodes)
-    utils.warning(cnt,path,random.sample(nodes,cnt))
+    return result
+    
+  def peerHttp(self,path,timeout,cb,percent=1,nodes=[],*cbArgs):
+    if nodes==[]:
+      nodes = self.getRandom(percent)
     threads=[]
     event = threading.Event()
-    for i,peer in enumerate(random.sample(nodes,cnt)):
-      if peer == self.me:
-        continue
+    print("path,timeout,cb,percent,nodes,cbArgs:",path,timeout,cb,percent,nodes,cbArgs)
+    for i,peer in enumerate(nodes):
+      slash = '/' if path[0]!='/' else ''
       if type(path)==str:
-        url = "http://"+peer+"/"+path
+        url = "http://"+peer+slash+path
       elif type(path)==list:
-        plen=len(path)
-        url = "http://"+peer+"/"+path[i%plen]
+        length=len(path)
+        url = "http://"+peer+slash+path[i%length]
       else:
         url = "http://"+peer
-      threads.append(utils.CommonThread(name="httpProcess"+str(i),func=self.httpProcess,event=event,args=(peer,url,timeout,fun)))
+      threads.append(utils.CommonThread(
+          self.httpProcess,
+          (url,timeout,cb,cbArgs)))
     for j in threads:
       j.setDaemon(True)
-      j.start()     
-    return 'ok'   
-               
-  def syncToPool(self,res,url):
-    try:
-       blocks=[Block(bdict) for bdict in res.json()]
-       utils.warning("get {} blocks from {}".format(len(blocks),url))
-       for block in blocks:
-         if block.isValid():
-           block.saveToPool()
-    except:
-       utils.warning("error on syncRangeChain")
-  def syncOverallChain(self,save=False):
-    best_chain = self.syncLocalChain()
-    
-    for peer in self.nodes:
-      #try to connect to peer
-      if peer == self.me:
-        continue
-      peerUrl = "http://"+peer + '/blockchain'
+      j.start()
+    for j in threads:
+      j.join()
+    result=[]
+    for k in threads:
+      result.append(k.getResult())
+    return result  
+                   
+  def syncToBlockPool(self,nodes,fromIndex,toIndex):
+    def callback(res,url,cbArgs):
       try:
-        r = requests.get(peerUrl,timeout=3)
-        try:
-          peer_blockchain_dict = r.json()
-          utils.danger(peerUrl," has ",len(peer_blockchain_dict))
-          peer_blocks = [Block(bdict) for bdict in peer_blockchain_dict]
-          peer_chain = Chain(peer_blocks)
-          utils.danger(peerUrl," is valid ",peer_chain.isValid())
-          if peer_chain.isValid() and peer_chain > best_chain:
-            best_chain = peer_chain
-        except Exception as e:
-          utils.danger("error syncOverallChain",e)
-          pass
-      except requests.exceptions.ConnectionError:
-        utils.danger("Peer at %s not running. Continuing to next peer." % peer)
-      except requests.exceptions.ReadTimeout:
-        utils.warning("Peer at %s timeout. Continuing to next peer." % peer)
+         blocks=[Block(bdict) for bdict in res.json()]
+         utils.warning("get {} blocks from {}".format(len(blocks),url))
+         for block in blocks:
+           if block.isValid():
+             block.saveToPool()
+      except:
+         utils.warning("error on syncRangeChain")
+
+    cnt = len(nodes)
+    res="nodes=[]"
+    if cnt>0:
+      step = (toIndex - fromIndex + 1) // cnt
+      path = []
+      begin = fromIndex
+      end = fromIndex + step - 1
+      for i in range(cnt):
+        path.append("blockchain/{}/{}".format(begin,end))
+        begin = end +1
+        end = begin+step - 1
+        if i==cnt - 2 and end < toIndex:
+          end = toIndex
+      res = self.peerHttp(path,3,callback,1,nodes,"test")
+    return res
+    
+  def syncOverallChain(self,full=False):
+    bestChain = self.syncLocalChain()
+    if full:
+      localIndex = -1
+    else:
+      localIndex = bestChain.maxindex() - NUM_FORK
+      if localIndex < 0 :
+        localIndex = -1
+    bestIndex = localIndex 
+    nodes=[]
+    
+    def getHighestNodes(res,url,cbArgs):
+      bestIndex = cbArgs[0]
+      if res.status_code!=200:
+        return {}
+      resIndex = int(res.text)
+      if resIndex > bestIndex:
+        bestIndex=resIndex
+        peer = urlparse.urlsplit(url).netloc
       else:
-        utils.success("Peer at %s is running. Gathered their blochchain for analysis." % peer)
-    utils.danger("Longest blockchain is %s blocks" % len(best_chain))
-    #for now, save the new blockchain over whatever was there
-    self.blockchain = best_chain
-    if save:
-      best_chain.save()
-    self.resetUTXO()
-    return best_chain
-  
+        return {}
+      return {"url":url,"bestIndex":bestIndex,"peer":peer}
+
+    utils.warning("setp1:get highest nodes list")
+    path = '/blockchain/maxindex'
+    result = self.peerHttp(path,3,getHighestNodes,1,[],bestIndex)
+    print("getHighestNodes1:",result) 
+    for i,peer in enumerate(result): 
+      if "bestIndex" in peer:
+        if peer["bestIndex"]>bestIndex:
+          bestIndex=peer["bestIndex"]
+          nodes=[]
+          nodes.append(peer["peer"])
+        elif peer["bestIndex"] == bestIndex:
+          nodes.append(peer["peer"])
+    print("getHightestNodes2:",nodes)
+    
+    utils.warning("step2:put range block into blockPool from each node")
+    fromIndex = localIndex + 1 
+    if fromIndex<0:
+      fromIndex = 0
+    self.syncToBlockPool(nodes,fromIndex,bestIndex) 
+    utils.warning("step3:wait blockPoolSync to build a bestChain")
+    self.blockchain = bestChain
+    
+    return bestIndex
+      
   def resetUTXO(self):
-    self.utxo = UTXO()
-    self.utxo.reset(self.blockchain)
-    return self.utxo.utxoSet
+    self.blockchain.utxo = UTXO()
+    self.blockchain.utxo.reset(self.blockchain)
+    #定义tradeUTXO,避免与blockchain的UTXO互相影响，更新trade时会更新tradeUTXO，以保证多次交易。更新block时使用blockchain下的UTXO
+    self.tradeUTXO = UTXO()
+    self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
+    return self.blockchain.utxo.utxoSet
   
   def updateUTXO(self,newblock):
-    utxoset = self.utxo.update(newblock)
+    utxoset = self.blockchain.utxo.update(newblock)
     return utxoset
   def txPoolSync(self):
     txPool=[]
@@ -260,29 +314,89 @@ class Node(object):
     if os.path.exists(BROADCASTED_BLOCK_DIR):
       fileset=glob.glob(
          os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
-      if len(fileset)>=1:
-        filepath = fileset[0]
+      for filepath in fileset:
         with open(filepath, 'r') as blockFile:
           try:
             blockDict = json.load(blockFile)
             block = Block(blockDict)
             if block.isValid():
+              print("0",self.blockchain.maxindex())
               if self.blockchain.addBlock(block):
+                print("1","txPoolRemove",block.index)
                 self.txPoolRemove(block)
+                print("2","block.save")
                 block.save()
-                self.updateUTXO(block)
+                print("3","remove file",filepath)
+                os.remove(filepath)
+                print("4","befor update utxo",self.blockchain.maxindex())
+                utxoSet = self.updateUTXO(block)
+                #self.tradeUTXO = copy.deepcopy(utxoSet) 
+                print("5","after update utxo",self.blockchain.utxo.getSummary())
+              else:
+                if self.resolveFork(block):
+                  break
           except Exception as e:
+            raise e
             print("error on:",filepath,e)
           finally:
             print("current blockchain high:",self.blockchain.maxindex())
-            os.remove(filepath)
-      elif len(fileset)>1:
-        #fork occurred
-        pass
-        
-        
-  #index=(os.path.split(filepath[:filepath.find("_")]))[1]
-          
+
+  def resolveFork(self,forkBlock):
+    blocks=[forkBlock]
+    index = forkBlock.index - 1
+    print("0.begin resolveFork",blocks[0].index,index)
+    while True :
+      fork=blocks[-1]
+      fileset=glob.glob(
+           os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(index)))
+      i=-1
+      print(fileset,blocks[-1].index)
+      if len(fileset)==0:
+        print("not find prev block in blockPool",index)
+        break
+      recursion=False
+      for i,filepath in enumerate(fileset):
+        with open(filepath,'r') as blockFile:
+          block = Block(json.load(blockFile))
+          print("1.test block.isValid")
+          if block.isValid():
+            print("2.test fork.prev_hash == block.hash")
+            if fork.prev_hash != block.hash:
+              continue
+            print("3.test block.prev_hash can link blockchain",block.prev_hash,self.blockchain.findBlockByIndex(index - 1).hash)
+            blocks.append(block) 
+            if index==0 or block.prev_hash == self.blockchain.findBlockByIndex(index - 1).hash:
+              #done,replace blocks in blockchain,move correspondent into blockPool
+              utils.warning("step1> move correspondent into blockPool")
+              index = block.index - 1
+              
+              for b in blocks[1:]:
+                print("6.b.index",b.index)
+                idx = b.index
+                self.blockchain.moveBlockToPool(idx) 
+                
+              utils.warning("step2> add new blocks")
+              print("7.blocks",type(blocks),blocks)
+              blocks.reverse()
+              for b in blocks:
+                print("8.b",utils.obj2json(b))
+                if self.blockchain.addBlock(b):
+                  self.txPoolRemove(b)
+                  b.save()
+                  b.removeFromPool()
+                  self.updateUTXO(b)
+              return True
+            else:
+              print("4.netx block")
+              index = block.index - 1
+              print("5.test",blocks,index)
+              recursion=True
+              break
+      if i==len(fileset) - 1 and not recursion:
+        print("9.find prev block in blockPool,but none can link fork block or can link main chain")
+        break
+    return False
+    
   def tradeTest(self,nameFrom,nameTo,amount):
     if nameFrom=='me':
       wFrom = Wallete(self.me)
@@ -297,7 +411,7 @@ class Node(object):
 
   def trade(self,inPrvkey,inPubkey,outPubkey,amount):
     newTX=Transaction.newTransaction(
-      inPrvkey,inPubkey,outPubkey,amount,self.utxo)
+      inPrvkey,inPubkey,outPubkey,amount,self.tradeUTXO)
     newTXdict=None
     if newTX:
       newTXdict=utils.obj2dict(newTX)
@@ -343,7 +457,7 @@ class Node(object):
     newBlock = self.findNonce(Block(blockDict))
     if newBlock==None:
       utils.warning("other miner mined")
-      return None
+      return "other miner mined"
     utils.warning("end mine.",index)
     #remove transaction from txPool
     self.txPoolRemove(newBlock) 
@@ -366,6 +480,8 @@ class Node(object):
                             json=blockDict,timeout=10)
       except Exception as e:
         print("%s error is %s"%(peer,e))  
+      else:
+        print("%s_%s success send to %s"%(index,nonce,peer))
     utils.warning("mine广播完成")
     
     #以下由blockPoolSync处理

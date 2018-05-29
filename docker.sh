@@ -1,0 +1,1 @@
+docker run -dit --name blockchain -p 5000:5000 -v /home/pi/python/bc:/bc blockchain
