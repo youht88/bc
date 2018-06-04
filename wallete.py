@@ -1,9 +1,11 @@
 
 from config import *
 import utils,os,hashlib,base64
+import logger
 
 class Wallete(object):
   def __init__(self,name):
+    Wallete.logger = logger.logger
     try:
       os.mkdir("%s%s"%(PRIVATE_DIR,name))
     except:
@@ -32,7 +34,7 @@ class Wallete(object):
       self.pubkey64D=base64.b64encode(self.key[1]).decode()
       self.address=Wallete.address(pubkey)
       if not os.path.exists("%s%s/%s"%(PRIVATE_DIR,name,self.address)):
-        print("warning : wallete address is changed excepted!")
+        Wallete.logger.warn("warning : wallete address is changed excepted!")
   @staticmethod
   def address(pubkey):
     return utils.sha256(pubkey)

@@ -6,8 +6,11 @@ import os
 
 from config import *
 
+import logger
+
 class UTXO(object):
   def __init__(self):
+    UTXO.logger = logger.logger
     self.utxoSet=[]
   def reset(self,blockchain):
     #print(address,"\n")
@@ -15,7 +18,7 @@ class UTXO(object):
     utxoSet={}
     spendInputs=[]
     block = blockchain.lastblock()
-    utils.warning("blockhigh:%i"%block.index)
+    UTXO.logger.warn("blockhigh:%i"%block.index)
     while True:
       data = block.data
       for TX in data:
@@ -119,14 +122,14 @@ class UTXO(object):
       with open(filename,'w') as file:
         utils.obj2jsonFile(self.utxoSet,file)
     except Exception as e:
-      utils.danger("error write utxo file.",e)
+      UTXO.logger.error("error write utxo file. {}".format(e))
   def load(self):
     filename = '%s%s.json' % (UTXO_DIR,'utxo')
     try:
       with open(filename,'r') as file:
         self.utxoSet = json.load(file)
     except:
-      utils.danger("error read utxo file.")
+      Chain.logger.error("error read utxo file.")
   def findUTXO(self,address):
     utxoSet = self.utxoSet
     findUtxoSet={}
@@ -174,19 +177,19 @@ class UTXO(object):
 class Chain(object):
   def __init__(self, blocks):
     self.blocks = blocks
- 
+    Chain.logger = logger.logger
   def isValid(self):
     for index, cur_block in enumerate(self.blocks[1:]):
       prev_block = self.blocks[index]
       if prev_block.index+1 != cur_block.index:
-        utils.danger("index error",prev_block.index,cur_block.index)
+        Chain.logger.error("index error",prev_block.index,cur_block.index)
         return False
       if not cur_block.isValid():
         #checks the hash
-        utils.danger("cur_block {} false".format(index))
+        Chain.logger.error("cur_block {} false".format(index))
         return False
       if prev_block.hash != cur_block.prev_hash:
-        utils.danger("block ",cur_block.index," hash error",prev_block.hash,cur_block.prev_hash)
+        Chain.logger.error("block ",cur_block.index," hash error",prev_block.hash,cur_block.prev_hash)
         return False
     return True
 
@@ -238,10 +241,10 @@ class Chain(object):
   def addBlock(self, new_block):
     if new_block.index!=0:
       if new_block.index > len(self) :
-        utils.warning("new block",new_block.index,"has error index.")
+        Chain.logger.warn("new block",new_block.index,"has error index.")
         return False  
       if new_block.prev_hash != self.blocks[new_block.index - 1].hash:
-        utils.warning("new block",new_block.index,"has error prev_hash.")
+        Chain.logger.warn("new block",new_block.index,"has error prev_hash.")
         return False
     #blockDict = utils.obj2dict(new_block)
     #self.blocks.append(Block(blockDict))

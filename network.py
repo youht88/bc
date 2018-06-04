@@ -4,9 +4,12 @@ import random
 import hashlib
 import utils
 import time
+import logger
+
 
 class Gossip(object):
   def __init__(self,nodes,me):
+    Gossip.logger = logger.logger
     self.nodes=list(nodes)
     try:
       self.nodes.remove(me)
@@ -16,7 +19,7 @@ class Gossip(object):
     self.data={}
     self.broadcastNum=2
   def cli(self,key,value):
-    print("cli",self.nodes)
+    Gossip.logger.debug("cli",self.nodes)
     valHash = hashlib.sha256(value.encode()).hexdigest()
     self.data[key]={"todo":list(self.nodes),
                     "done":[],
@@ -33,7 +36,6 @@ class Gossip(object):
       for peer in peers:
         url="http://{}/syn1/{}/{}/{}".format(
            peer,key,valHash,self.me)
-        print(url)
         result=self.httpProcess(url)
         done.append({"peer":peer,"msg":result["msg"]})
         try:
@@ -52,7 +54,7 @@ class Gossip(object):
     #ack to sync data
     if key in self.data:  #
       if "hash" in self.data[key] and self.data[key]["hash"]==valHash: #have this k-v
-        utils.warning("syn1","key {} has {}".format(key,self.data[key]["value"]))
+        Gossip.logger.info("syn1","key {} has {}".format(key,self.data[key]["value"]))
         self.data[key]["comein"].append(you)
         #broadcast
         if not self.data[key]["feedback"]:
@@ -61,7 +63,7 @@ class Gossip(object):
         else:
           result = 'ok'
       else:  #have this k but v is old
-        utils.warning("syn1","key {} has old value {}".format(key,self.data[key]["value"]))
+        Gossip.logger.info("syn1","key {} has old value {}".format(key,self.data[key]["value"]))
         self.data[key]["todo"]=list(self.nodes)
         self.data[key]["done"]=[]
         self.data[key]["comein"]=[you]
@@ -71,7 +73,7 @@ class Gossip(object):
         url="http://{}/ack/{}/{}".format(
            you,key,self.me)
         result=self.httpProcess(url)
-        utils.warning("syn1","message from {} to {}".format(you,self.me))
+        Gossip.logger.info("syn1","message from {} to {}".format(you,self.me))
     else: #new k-v occure
       self.data[key]={}
       self.data[key]["todo"]=list(self.nodes)
@@ -83,19 +85,19 @@ class Gossip(object):
       url="http://{}/ack/{}/{}".format(
            you,key,self.me)
       result=self.httpProcess(url)
-      utils.warning("syn1","message from {} to {}".format(you,self.me))
+      Gossip.logger.info("syn1","message from {} to {}".format(you,self.me))
     return result
   def ack(self,key,you):
     value=self.data[key]["value"]
     url="http://{}/syn2/{}/{}/{}".format(you,key,value,self.me)
     result = self.httpProcess(url)
-    utils.warning('ack','put {}-{} to {}'.format(key,value,you))
+    Gossip.logger.info('ack','put {}-{} to {}'.format(key,value,you))
     return result
   def syn2(self,key,value,you):
     if key in self.data:
       self.data[key]["value"]=value
       valHash=self.data[key]["hash"]
-    utils.warning('syn2','peer {} update {}-{}'.format(self.me,key,value))
+    Gossip.logger.info('syn2','peer {} update {}-{}'.format(self.me,key,value))
     #broadcast
     return self.broadcast(key,valHash,you)
   def broadcast(self,key,valHash,you): 
@@ -107,7 +109,6 @@ class Gossip(object):
     except:
       pass
     ok=False
-    print(ok,todo)
     while not ok and todo:
       n = len(todo) if len(todo)<self.broadcastNum else self.broadcastNum
       peers = random.sample(todo ,n)
@@ -119,8 +120,8 @@ class Gossip(object):
         try:
           todo.remove(peer)
         except:
-          print("broadcast remove error:",todo,peer)
-        utils.warning('syn1','broadcast from {} to {}'.format(self.me,peers))
+          Gossip.logger.error("broadcast remove error {} {}:".format(todo,peer))
+        Gossip.logger.warn('syn1 broadcast from {} to {}'.format(self.me,peers))
         if result["status_code"]==requests.codes.ok:
           ok=True
     self.data[key]["todo"]=todo
@@ -134,7 +135,7 @@ class Gossip(object):
       result=self.httpProcess(url)
       self.data[key]["feedback"]=True
       done.append({"end":1,"peer":you,"msg":result["msg"]}) 
-      utils.warning("no node to broadcast")
+      Gossip.logger.warn("no node to broadcast")
       return "no node to broadcast." 
   def getValue(self,key):
     if key in self.data:
@@ -167,26 +168,26 @@ class Gossip(object):
         name=""
         if cb:
           name=cb.__name__
-        utils.danger("error on execute ",name,e)
+        Gossip.logger.error("error on execute {}",name)
         result["status_code"] = -1
         result["msg"]="error on execute %s"%name
         result["res"]=res 
     except requests.exceptions.ConnectionError:
       msg = "Peer at %s not running. Continuing to next peer." % peer
-      utils.warning(msg)
+      Gossip.logger.warn(msg)
       result["status_code"] = -2
       result["msg"]=msg
       result["res"]=None 
     except requests.exceptions.ReadTimeout:
       msg = "Peer at %s timeout. Continuing to next peer." % peer
-      utils.warning(msg)
+      Gossip.logger.warn(msg)
       result["status_code"] = -3
       result["msg"]=msg
       result["res"]=None 
     except Exception as e:
-      utils.warning("Peer at %s error."% peer,e)
+      Gossip.logger.error("Peer at %s error."% peer,e)
     else:
-      utils.success("Peer at %s is running. " % peer)
+      Gossip.logger.info("Peer at %s is running. " % peer)
       
     return result
   

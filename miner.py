@@ -11,8 +11,10 @@ import json
 import sys
 import argparse
 from config import *
+import logger
 
 import utils
+
 import string,random,hashlib,time
 
 import threading
@@ -20,6 +22,9 @@ import glob
 import base64
 
 from network import Gossip
+
+import traceback
+
 
 #args check & use help
 parser=argparse.ArgumentParser()
@@ -30,6 +35,7 @@ parser.add_argument("--port",type=int,default="5000",help="default port is 5000"
 parser.add_argument("--name",type=str,help="name of wallete")
 parser.add_argument("--full",action="store_true",help="full sync")
 parser.add_argument("--syncNode",action="store_true",help="if sync overall node")
+parser.add_argument("--debug",action="store_true",help="if debug mode ")
 
 args=parser.parse_args()
 
@@ -71,9 +77,15 @@ if not os.path.exists(BROADCASTED_BLOCK_DIR):
 if not os.path.exists(BROADCASTED_TRANSACTION_DIR):
   os.makedirs(BROADCASTED_TRANSACTION_DIR)
 
+#set logger
+log = logger.Logger("miner","debug")
+log.registHandler("./miner.log")
+logger.logger = log
 
 #make pvkey,pbkey,wallete address  
 myWallete=Wallete(args.name)
+    
+log.error(args.me,args.port)
     
 #make node
 node=Node({"host":args.host,
@@ -87,9 +99,15 @@ app = Flask(__name__)
 if args.syncNode:
   node.syncOverallNodes()
 
-utils.warning("1.node.nodes",node.nodes)
+log.debug(1,"debug")
+log.info(2,"info")
+log.warn(3,"warn")
+log.error(4,"error")
+log.critical(5,"critical")
+
+log.info("1.node.nodes {}".format(node.nodes))
 myGossip = Gossip(node.nodes,me)
-utils.warning("2.node.nodes",node.nodes)
+log.info("2.node.nodes {}".format(node.nodes))
 
 #genesis block ,only first node first time to use 
 localChain = node.syncLocalChain()
@@ -116,23 +134,23 @@ def blockerProcess():
   while True:
     #if self.event.wait(timeout=1):
     #  break
-    if len(threading.enumerate())==4: #debug调试时使用
-      try:
-        maxindex = node.blockchain.maxindex()
-        fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
-        if len(fileset)>=1:        
-          node.blockPoolSync()
-        time.sleep(2)
-        #print("blockPool={},threads={}".format(node.blockchain.maxindex(),len(threading.enumerate())))
-      except Exception as e:
-        #print(e)
-        raise e
+    if args.debug and len(threading.enumerate())!=4: #debug调试时使用
+      continue
+    try:
+      maxindex = node.blockchain.maxindex()
+      fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
+      if len(fileset)>=1:        
+        node.blockPoolSync()
+      time.sleep(2)
+      #print("blockPool={},threads={}".format(node.blockchain.maxindex(),len(threading.enumerate())))
+    except Exception as e:
+      traceback.format_exc()
 
 blocker=utils.CommonThread(blockerProcess,())
 blocker.setDaemon(True)
 blocker.start()
 
-print("miner is ready")
+log.info("miner is ready")
 #sync utxo
 node.resetUTXO()
 
@@ -142,7 +160,7 @@ def minerProcess():
       txPoolFiles=glob.glob(
          os.path.join(BROADCASTED_TRANSACTION_DIR, '*.json'))
       if len(txPoolFiles)>=TRANSACTION_TO_BLOCK:
-        print ('the arg is:%s,%s\r' % (len(txPoolFiles),time.time()))
+        log.info('the arg is:%s,%s\r' % (len(txPoolFiles),time.time()))
         t1=Transaction.newCoinbase(myWallete.address)
         coinbase=utils.obj2dict(t1)
         #mine
@@ -151,8 +169,7 @@ def minerProcess():
       time.sleep(2)
       #print("txPool=",len(txPoolFiles))
     except Exception as e:
-      print(e)
-      #raise e
+      traceback.format_exc()
 
 miner = utils.CommonThread(minerProcess,())
 miner.setDaemon(True)
@@ -293,6 +310,7 @@ def nodeSync():
 
 @app.route('/',methods=['GET'])
 def default():
+  log.debug("hello youht")
   return "hello youht"
 
 @app.route('/index',methods=['GET'])
@@ -408,4 +426,4 @@ def getValue(key):
 
 #start program
 if __name__ == '__main__':
-  app.run(host=node.host, port=node.port,debug=True,threaded=True)
+  app.run(host=node.host, port=node.port,debug=args.debug,threaded=True)

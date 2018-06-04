@@ -6,6 +6,8 @@ import datetime as date
 import glob
 
 from config import *
+import logger
+
 import utils
 
 from chain import Chain,UTXO
@@ -18,19 +20,16 @@ import time
 import random
 import copy
 
+import traceback
 
 class Node(object):
   def __init__(self,dict):
+    Node.logger = logger.logger
+    print('*'*40,Node.logger)
     self.me = dict["me"]
     self.entryNode=dict["entryNode"]
-    if hasattr(self,'host'):
-      self.host=dict["host"]
-    else:
-      self.host="0.0.0.0"
-    if hasattr(self,'port'):
-      self.port=dict["port"]
-    else:
-      self.port=5000
+    self.host=dict["host"]
+    self.port=dict["port"]
     
     #fetch me node 
     if self.me == None:
@@ -89,32 +88,25 @@ class Node(object):
     if self.entryNode != None :
       while len(todoNodes):
         node = todoNodes.pop()  
-        print('*'*5,'\n',todoNodes,'\n','*'*5)
         try:
-          print("-------------------")
           res = requests.get("http://"+node+"/node/register",params={"newNode":self.me},timeout=3)
           comeinNodes=set(res.json()["nodes"])
           doneNodes.add(node)
           todoNodes=(todoNodes | comeinNodes) - doneNodes
-          print("comeinNodes",comeinNodes)
-          print("doneNodes",doneNodes)
-          print("todoNodes",todoNodes)
         except Exception as e:
-          print("error on ",node," current done",self.nodes,repr(e))
+          traceback.format_exc()
       self.nodes =  doneNodes 
+      Node.logger.info("nodes:{}".format(doneNodes))
       self.save()
     
   def register(self,newNode):
     self.nodes.add(newNode)
-    utils.warning("begin write",self.nodes)
     self.save()
-    utils.warning("end write",self.nodes)
     return self.nodes
     
   def save(self):
     with open(self.peersFile,'w') as f:
       nodes=[item+'\n' for item in self.nodes]
-      utils.warning(nodes)
       f.writelines(nodes)
             
   def unregister(self,delNode):
@@ -138,7 +130,7 @@ class Node(object):
           try:
             blockDict = json.load(blockFile)
           except:
-            print(filepath+" error!")
+            Node.logger.error(filepath+" error!")
             return localChain
           localBlock = Block(blockDict)
           localChain.addBlock(localBlock)
@@ -158,13 +150,13 @@ class Node(object):
         utils.danger("error on execute ",cb.__name__,e)
         raise e
     except requests.exceptions.ConnectionError:
-      utils.danger("Peer at %s not running. Continuing to next peer." % peer)
+      Node.logger.warn("Peer at %s not running. Continuing to next peer." % peer)
     except requests.exceptions.ReadTimeout:
-      utils.warning("Peer at %s timeout. Continuing to next peer." % peer)
+      Node.logger.warn("Peer at %s timeout. Continuing to next peer." % peer)
     except Exception as e:
-      utils.warning("Peer at %s error."% peer,e)
+      Node.logger.error("Peer at %s error."% peer)
     else:
-      utils.success("Peer at %s is running. " % peer)
+      Node.logger.info("Peer at %s is running. " % peer)
     return result
     
   def peerHttp(self,path,timeout,cb,percent=1,nodes=[],*cbArgs):
@@ -172,7 +164,6 @@ class Node(object):
       nodes = self.getRandom(percent)
     threads=[]
     event = threading.Event()
-    print("path,timeout,cb,percent,nodes,cbArgs:",path,timeout,cb,percent,nodes,cbArgs)
     for i,peer in enumerate(nodes):
       slash = '/' if path[0]!='/' else ''
       if type(path)==str:
@@ -199,12 +190,11 @@ class Node(object):
     def callback(res,url,cbArgs):
       try:
          blocks=[Block(bdict) for bdict in res.json()]
-         utils.warning("get {} blocks from {}".format(len(blocks),url))
          for block in blocks:
            if block.isValid():
              block.saveToPool()
       except:
-         utils.warning("error on syncRangeChain")
+         Node.logger.error("error on syncRangeChain")
 
     cnt = len(nodes)
     res="nodes=[]"
@@ -245,10 +235,10 @@ class Node(object):
         return {}
       return {"url":url,"bestIndex":bestIndex,"peer":peer}
 
-    utils.warning("setp1:get highest nodes list")
+    Node.logger.debug("setp1:get highest nodes list")
     path = '/blockchain/maxindex'
     result = self.peerHttp(path,3,getHighestNodes,1,[],bestIndex)
-    print("getHighestNodes1:",result) 
+    Node.logger.info("getHighestNodes1:{}".format(result)) 
     for i,peer in enumerate(result): 
       if "bestIndex" in peer:
         if peer["bestIndex"]>bestIndex:
@@ -257,14 +247,14 @@ class Node(object):
           nodes.append(peer["peer"])
         elif peer["bestIndex"] == bestIndex:
           nodes.append(peer["peer"])
-    print("getHightestNodes2:",nodes)
+    Node.logger.info("getHightestNodes2:{}".format(nodes))
     
-    utils.warning("step2:put range block into blockPool from each node")
+    Node.logger.debug("step2:put range block into blockPool from each node")
     fromIndex = localIndex + 1 
     if fromIndex<0:
       fromIndex = 0
     self.syncToBlockPool(nodes,fromIndex,bestIndex) 
-    utils.warning("step3:wait blockPoolSync to build a bestChain")
+    Node.logger.debug("step3:wait blockPoolSync to build a bestChain")
     self.blockchain = bestChain
     
     return bestIndex
@@ -278,8 +268,9 @@ class Node(object):
     return self.blockchain.utxo.utxoSet
   
   def updateUTXO(self,newblock):
-    utxoset = self.blockchain.utxo.update(newblock)
-    return utxoset
+    self.blockchain.utxo.update(newblock)
+    self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
+    
   def txPoolSync(self):
     txPool=[]
     #We're assuming that the folder and at least initial block exists
@@ -292,7 +283,7 @@ class Node(object):
           try:
             txPoolDict = json.load(txFile)
           except:
-            print("error on:",filepath)
+            Node.logger.error("error on:{}".format(filepath))
           txPool.append(
             Transaction.parseTransaction(txPoolDict))
     return txPool
@@ -305,9 +296,9 @@ class Node(object):
         txFile= os.path.join(BROADCASTED_TRANSACTION_DIR,TX.hash+".json")
         try:
           os.remove(txFile)
-          utils.warning("del:",txFile)
+          Node.logger.warn("del:{}".format(txFile))
         except:
-          utils.warning("del file not found:",txFile)
+          Node.logger.warn("del file not found:{}".format(txFile))
           pass
   def blockPoolSync(self):
     maxindex = self.blockchain.maxindex()
@@ -320,66 +311,64 @@ class Node(object):
             blockDict = json.load(blockFile)
             block = Block(blockDict)
             if block.isValid():
-              print("0",self.blockchain.maxindex())
+              Node.logger.debug("0.maxindex {}".format(self.blockchain.maxindex()))
               if self.blockchain.addBlock(block):
-                print("1","txPoolRemove",block.index)
+                Node.logger.debug("1. txPoolRemove".format(block.index))
                 self.txPoolRemove(block)
-                print("2","block.save")
+                Node.logger.debug("2.block.save")
                 block.save()
-                print("3","remove file",filepath)
+                Node.logger.debug("3.remove file {}".format(filepath))
                 os.remove(filepath)
-                print("4","befor update utxo",self.blockchain.maxindex())
-                utxoSet = self.updateUTXO(block)
-                #self.tradeUTXO = copy.deepcopy(utxoSet) 
-                print("5","after update utxo",self.blockchain.utxo.getSummary())
+                Node.logger.debug("4.befor update utxo {}".format(self.blockchain.maxindex()))
+                self.updateUTXO(block)
+                Node.logger.debug("5.after update utxo {}".format(self.blockchain.utxo.getSummary()))
               else:
                 if self.resolveFork(block):
                   break
           except Exception as e:
-            raise e
-            print("error on:",filepath,e)
+            Node.logger.critical(traceback.format_exc())
+            Node.logger.error("error on:{}".format(filepath))
           finally:
-            print("current blockchain high:",self.blockchain.maxindex())
+            Node.logger.info("current blockchain high:{}".format(self.blockchain.maxindex()))
 
   def resolveFork(self,forkBlock):
     blocks=[forkBlock]
     index = forkBlock.index - 1
-    print("0.begin resolveFork",blocks[0].index,index)
+    self.logger.info("0.begin resolveFork {} {}".format(blocks[0].index,index))
     while True :
       fork=blocks[-1]
       fileset=glob.glob(
            os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(index)))
       i=-1
-      print(fileset,blocks[-1].index)
       if len(fileset)==0:
-        print("not find prev block in blockPool",index)
+        Node.logger.info("not find prev block in blockPool {}".format(index))
         break
       recursion=False
       for i,filepath in enumerate(fileset):
         with open(filepath,'r') as blockFile:
           block = Block(json.load(blockFile))
-          print("1.test block.isValid")
+          Node.logger.info("1.test block.isValid")
           if block.isValid():
-            print("2.test fork.prev_hash == block.hash")
+            Node.logger.info("2.test fork.prev_hash == block.hash")
             if fork.prev_hash != block.hash:
               continue
-            print("3.test block.prev_hash can link blockchain",block.prev_hash,self.blockchain.findBlockByIndex(index - 1).hash)
+            Node.logger.info("3.test block.prev_hash can link blockchain {} {}".format(block.prev_hash,self.blockchain.findBlockByIndex(index - 1).hash))
             blocks.append(block) 
             if index==0 or block.prev_hash == self.blockchain.findBlockByIndex(index - 1).hash:
               #done,replace blocks in blockchain,move correspondent into blockPool
-              utils.warning("step1> move correspondent into blockPool")
+              Node.logger.info("step1> move correspondent into blockPool")
               index = block.index - 1
               
               for b in blocks[1:]:
-                print("6.b.index",b.index)
+                Node.logger.info("6.b.index {}".format(b.index))
                 idx = b.index
                 self.blockchain.moveBlockToPool(idx) 
                 
-              utils.warning("step2> add new blocks")
-              print("7.blocks",type(blocks),blocks)
+              Node.logger.info("step2> add new blocks")
+              Node.logger.info("7.blocks {} {}".format(type(blocks),blocks))
               blocks.reverse()
               for b in blocks:
-                print("8.b",utils.obj2json(b))
+                Node.logger.info("8.b {}".format(utils.obj2json(b)))
                 if self.blockchain.addBlock(b):
                   self.txPoolRemove(b)
                   b.save()
@@ -387,13 +376,13 @@ class Node(object):
                   self.updateUTXO(b)
               return True
             else:
-              print("4.netx block")
+              Node.logger.info("4.netx block")
               index = block.index - 1
-              print("5.test",blocks,index)
+              Node.logger.info("5.test {}".format(blocks,index))
               recursion=True
               break
       if i==len(fileset) - 1 and not recursion:
-        print("9.find prev block in blockPool,but none can link fork block or can link main chain")
+        Node.logger.info("9.find prev block in blockPool,but none can link fork block or can link main chain")
         break
     return False
     
@@ -420,12 +409,12 @@ class Node(object):
           res = requests.post("http://%s/transacted"%peer,
                          json=newTXdict,timeout=10)
           if res.status_code == 200:
-            print("%s successed."%peer)
+            Node.logger.info("%s successed."%peer)
           else:
-            print("%s error is %s"%(peer,res.status_code))
+            Node.logger.error("%s error is %s"%(peer,res.status_code))
         except Exception as e:
-          print("%s error is %s"%(peer,e))  
-      utils.warning("transaction广播完成")
+          Node.logger.error("%s error is %s"%(peer,e))  
+      Node.logger.info("transaction广播完成")
     return newTXdict
 
   def genesisBlock(self,coinbase):
@@ -453,10 +442,10 @@ class Node(object):
     prev_hash = prevBlock.hash
     nonce = 0  
     blockDict = utils.args2dict(CONVERSIONS=BLOCK_VAR_CONVERSIONS,index=index, timestamp=timestamp, data=data, prev_hash=prev_hash, nonce=nonce)
-    utils.warning("begin mine...",index)
+    Node.logger.info("begin mine...{}".format(index))
     newBlock = self.findNonce(Block(blockDict))
     if newBlock==None:
-      utils.warning("other miner mined")
+      Node.logger.warn("other miner mined")
       return "other miner mined"
     utils.warning("end mine.",index)
     #remove transaction from txPool
@@ -479,10 +468,10 @@ class Node(object):
         res = requests.post("http://%s/mined"%peer,
                             json=blockDict,timeout=10)
       except Exception as e:
-        print("%s error is %s"%(peer,e))  
+        Node.logger.error("%s error is %s"%(peer,e))  
       else:
-        print("%s_%s success send to %s"%(index,nonce,peer))
-    utils.warning("mine广播完成")
+        Node.logger.info("%s_%s success send to %s"%(index,nonce,peer))
+    Node.logger.info("mine广播完成")
     
     #以下由blockPoolSync处理
     #newBlock.save()
@@ -492,7 +481,7 @@ class Node(object):
     return newBlock
   
   def findNonce(self,newBlock):
-    print("mining for block %s" % newBlock.index)
+    Node.logger.info("mining for block %s" % newBlock.index)
     newBlock.updateHash()#calculate_hash(index, prev_hash, data, timestamp, nonce)
     newBlock.diffcult = NUM_ZEROS
     while str(newBlock.hash[0:NUM_ZEROS]) != '0' * NUM_ZEROS:
@@ -506,8 +495,8 @@ class Node(object):
       newBlock.nonce += 1
       newBlock.updateHash()
       
-    print ("block %s mined. Nonce: %s , hash: %s" % (newBlock.index, newBlock.nonce,newBlock.hash))
-    utils.success("block #"+
-          str(newBlock.index)+
-          " is",newBlock.isValid())
+    Node.logger.info("block %s mined. Nonce: %s , hash: %s" % (newBlock.index, newBlock.nonce,newBlock.hash))
+    Node.logger.info("block #{} is {}".format(
+          str(newBlock.index),
+          newBlock.isValid()))
     return newBlock #we mined the block. We're going to want to save it

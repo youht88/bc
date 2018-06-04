@@ -8,8 +8,11 @@ from config import *
 
 from transaction import Transaction
 
+import logger
+
 class Block(object):
   def __init__(self, dictionary):
+    Block.logger = logger.logger
     utils.dictConvert(dictionary,self,
         BLOCK_VAR_CONVERSIONS)
     data=[]
@@ -39,15 +42,6 @@ class Block(object):
       txHash.append(item.hash)
     merkleRoot=utils.sha256("".join(txHash))
     return merkleRoot
-  '''  
-  def generate_header(index, prev_hash, data, timestamp, nonce):
-    return "".join([str(index),
-           prev_hash, 
-           utils.obj2json(data,sort_keys=True),
-           str(timestamp),
-           str(self.diffcult),
-           str(nonce)])
-  '''
   
   def updateHash(self):
     sha = hashlib.sha256()
@@ -76,15 +70,14 @@ class Block(object):
   def isValid(self):
     if self.index == 0:
       return True
-    utils.debug("danger","verify block #"+str(self.index))
-    utils.debug("danger","verify proof of work")
+    Block.logger.debug("verify block #"+str(self.index))
+    Block.logger.debug("verify proof of work")
     self.updateHash()
     if not (str(self.hash[0:self.diffcult]) == '0' * self.diffcult):
       return False
-    utils.debug("success","%s is truly worked"%self.hash)
-    utils.debug("danger","verify transaction data")
+    Block.logger.debug("%s is truly worked"%self.hash)
+    Block.logger.debug("verify transaction data")
     for transaction in self.data:
-      utils.debug("info",self.data)
       if not transaction.isValid():
         return False
     return True

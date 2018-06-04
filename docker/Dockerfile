@@ -3,7 +3,7 @@ MAINTAINER youht
 
 RUN echo "#install python3"
 RUN apk add python3 --no-cache
-RUN pip3 install flask requests bash
+RUN pip3 install flask requests bash pyyaml
 RUN apk add gcc g++ make libffi-dev openssl-dev --no-cache
 RUN apk add python3-dev --no-cache
 RUN pip3 install pycrypto

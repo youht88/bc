@@ -8,6 +8,8 @@ import json
 import time
 from wallete import Wallete
               
+import logger
+
 class TXin(object):
   def __init__(self,dict):
     self.prevHash=dict["prevHash"] if "prevHash" in dict else "" 
@@ -49,6 +51,7 @@ class TXout(object):
     
 class Transaction(object):
     def __init__(self,**args):
+      Transaction.logger = logger.logger
       self.ins=args["ins"]
       self.insLen=len(self.ins)
       self.outs=args["outs"]
@@ -60,6 +63,8 @@ class Transaction(object):
       if "hash" in args:
         self.hash=args["hash"]
       else:
+        Transaction.logger.critical(self.ins)
+        
         self.hash=utils.sha256([utils.obj2json(self.ins),
                                 utils.obj2json(self.outs),
                                 self.timestamp])
@@ -95,7 +100,7 @@ class Transaction(object):
       #     }
       #print("newTransaction.todo","\n",todo)
       if todo["acc"] < amount:
-        utils.danger("%s not have enough money."%inAddr)
+        Transaction.logger.warning("%s not have enough money."%inAddr)
         return None
       for hash in todo["unspend"]:
         output = todo["unspend"][hash]
@@ -125,13 +130,13 @@ class Transaction(object):
     def isValid(self):
       if self.isCoinbase():
         return self.insLen==1 and self.outsLen==1 and self.outs[0].amount<=REWARD        
-      utils.debug("warning","begin verify:",utils.obj2json(self))
+      Transaction.logger.debug("warning","begin verify:",utils.obj2json(self))
       for oin in self.ins:
         outPubkey = base64.b64decode(oin.pubkey64D.encode())
         #step1:verify it is mine 
         if not utils.sha256(outPubkey)==oin.inAddr:
           return False
-        utils.debug("warning",oin.prevHash,oin.index,"step1 ok")
+        Transaction.logger.debug("warning",oin.prevHash,oin.index,"step1 ok")
         #step2:verify not to be changed!!!!
         isVerify=utils.verify(
           oin.prevHash+str(oin.index)+oin.inAddr,
@@ -140,6 +145,6 @@ class Transaction(object):
          )
         if isVerify==False:
           return False
-        utils.debug("warning",oin.prevHash,oin.index,"step2 ok")
+        Transaction.logger.debug("warning",oin.prevHash,oin.index,"step2 ok")
         
       return True

@@ -1,3 +1,5 @@
+
+
 ROOT_DIR='/bc'
 CHAINDATA_DIR = 'chaindata/'
 PRIVATE_DIR = 'private/'

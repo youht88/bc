@@ -10,6 +10,8 @@ from config import *
 import utils
 import requests
 
+import logger
+
 #args check & use help
 parser=argparse.ArgumentParser()
 parser.add_argument("--entryNode",type=str,help="indicate which node to entry,e.g. ip|host:port ")
@@ -40,6 +42,11 @@ except:
   except:
     pass
 
+#set logger
+log = logger.Logger("trader","info")
+log.registHanddle("./trader.log")
+logger.logger = log
+
 #init
 if not os.path.exists(PRIVATE_DIR):
   os.makedirs(PRIVATE_DIR)
@@ -61,7 +68,7 @@ node.syncOverallNodes()
 node.syncOverallChain(save=True) 
 temp = node.resetUTXO()
 
-utils.warning(utils.sha256(utils.obj2json(temp)))
+log.warning(utils.sha256(utils.obj2json(temp)))
 
 #make pvkey,pbkey,wallete address  
 youhtWallete=Wallete(me)
@@ -74,9 +81,9 @@ print(utils.obj2json(coinbaseTX))
 #UTXO=node.blockchain.findUTXO(youhtWallete.address)
 
 value=node.utxo.getBalance(youhtWallete.address)
-utils.warning("{}'s wallete has {}".format(me,value))  
+log.warning("{}'s wallete has {}".format(me,value))  
 value1=node.utxo.getBalance(jinliWallete.address)
-utils.warning("jinli's wallete has {}".format(value1))  
+log.warning("jinli's wallete has {}".format(value1))  
 
 
 node.tradeTest(me,'jinli',3)
