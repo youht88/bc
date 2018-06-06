@@ -1,0 +1,1 @@
+import testGlobal1,testGlobal2
