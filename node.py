@@ -176,6 +176,7 @@ class Node(object):
       threads.append(utils.CommonThread(
           self.httpProcess,
           (url,timeout,cb,cbArgs)))
+      Node.logger.info(url)
     for j in threads:
       j.setDaemon(True)
       j.start()
@@ -311,17 +312,17 @@ class Node(object):
             blockDict = json.load(blockFile)
             block = Block(blockDict)
             if block.isValid():
-              Node.logger.debug("0.maxindex {}".format(self.blockchain.maxindex()))
+              Node.logger.debug("syncblock0.maxindex {}".format(self.blockchain.maxindex()))
               if self.blockchain.addBlock(block):
-                Node.logger.debug("1. txPoolRemove".format(block.index))
+                Node.logger.debug("syncblock1. txPoolRemove".format(block.index))
                 self.txPoolRemove(block)
-                Node.logger.debug("2.block.save")
+                Node.logger.debug("syncblock2.block.save")
                 block.save()
-                Node.logger.debug("3.remove file {}".format(filepath))
+                Node.logger.debug("syncblock3.remove file {}".format(filepath))
                 os.remove(filepath)
-                Node.logger.debug("4.befor update utxo {}".format(self.blockchain.maxindex()))
+                Node.logger.debug("syncblock4.befor update utxo {}".format(self.blockchain.maxindex()))
                 self.updateUTXO(block)
-                Node.logger.debug("5.after update utxo {}".format(self.blockchain.utxo.getSummary()))
+                Node.logger.debug("syncblock5.after update utxo {}".format(self.blockchain.utxo.getSummary()))
               else:
                 if self.resolveFork(block):
                   break
@@ -334,7 +335,7 @@ class Node(object):
   def resolveFork(self,forkBlock):
     blocks=[forkBlock]
     index = forkBlock.index - 1
-    self.logger.info("0.begin resolveFork {} {}".format(blocks[0].index,index))
+    self.logger.info("fork0.begin resolveFork {} {}".format(blocks[0].index,index))
     while True :
       fork=blocks[-1]
       fileset=glob.glob(
@@ -347,28 +348,28 @@ class Node(object):
       for i,filepath in enumerate(fileset):
         with open(filepath,'r') as blockFile:
           block = Block(json.load(blockFile))
-          Node.logger.info("1.test block.isValid")
+          Node.logger.info("fork1.test block.isValid")
           if block.isValid():
-            Node.logger.info("2.test fork.prev_hash == block.hash")
+            Node.logger.info("fork2.test fork.prev_hash == block.hash")
             if fork.prev_hash != block.hash:
               continue
-            Node.logger.info("3.test block.prev_hash can link blockchain {} {}".format(block.prev_hash,self.blockchain.findBlockByIndex(index - 1).hash))
+            Node.logger.info("fork3.test block.prev_hash can link blockchain {} {}".format(block.prev_hash,self.blockchain.findBlockByIndex(index - 1).hash))
             blocks.append(block) 
             if index==0 or block.prev_hash == self.blockchain.findBlockByIndex(index - 1).hash:
               #done,replace blocks in blockchain,move correspondent into blockPool
-              Node.logger.info("step1> move correspondent into blockPool")
+              Node.logger.info("forkstep1> move correspondent into blockPool")
               index = block.index - 1
               
               for b in blocks[1:]:
-                Node.logger.info("6.b.index {}".format(b.index))
+                Node.logger.info("fork6.b.index {}".format(b.index))
                 idx = b.index
                 self.blockchain.moveBlockToPool(idx) 
                 
-              Node.logger.info("step2> add new blocks")
-              Node.logger.info("7.blocks {} {}".format(type(blocks),blocks))
+              Node.logger.info("forkstep2> add new blocks")
+              Node.logger.info("fork7.blocks {} {}".format(type(blocks),blocks))
               blocks.reverse()
               for b in blocks:
-                Node.logger.info("8.b {}".format(utils.obj2json(b)))
+                Node.logger.info("fork8.b {}".format(utils.obj2json(b)))
                 if self.blockchain.addBlock(b):
                   self.txPoolRemove(b)
                   b.save()
@@ -376,13 +377,13 @@ class Node(object):
                   self.updateUTXO(b)
               return True
             else:
-              Node.logger.info("4.netx block")
+              Node.logger.info("fork4.netx block")
               index = block.index - 1
-              Node.logger.info("5.test {}".format(blocks,index))
+              Node.logger.info("fork5.test {}".format(blocks,index))
               recursion=True
               break
       if i==len(fileset) - 1 and not recursion:
-        Node.logger.info("9.find prev block in blockPool,but none can link fork block or can link main chain")
+        Node.logger.info("fork9.find prev block in blockPool,but none can link fork block or can link main chain")
         break
     return False
     
@@ -447,7 +448,7 @@ class Node(object):
     if newBlock==None:
       Node.logger.warn("other miner mined")
       return "other miner mined"
-    utils.warning("end mine.",index)
+    Node.logger.warning("end mine.",index)
     #remove transaction from txPool
     self.txPoolRemove(newBlock) 
     

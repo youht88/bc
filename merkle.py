@@ -1,74 +1,106 @@
+import hashlib
+import math
+
 class Leaf:
-  def __init__(self,item):
-    self.item = item
+  def __init__(self):
+    self.value = None
     self.left = None
     self.right = None
 
 class Tree:
-  def __init__(self):
-    self.root = None
-
-  def add(self, item):
-    leaf = Leaf(item)
-    if self.root is None:
-      self.root = leaf
+  def __init__(self,hashFun="sha256"):
+    hashFun = hashFun.lower()
+    if hashFun in ["sha256","sha1","sha512","md5"]:
+      self.hashFun = getattr(hashlib,hashFun)
     else:
-      q = [self.root]
-      while True:
-        pop_leaf = q.pop(0)
-        if pop_leaf.left is None:
-          pop_leaf.left = leaf
-          return
-        elif pop_leaf.right is None:
-          pop_leaf.right = leaf
-          return
+      self.hashFun = getattr(hashlib,"sha256")
+    self.root = None
+    self.levels=[]
+  def addNode(self,left,right,data,hash=False):
+    node = Leaf()
+    if left==None and right==None:
+      if hash:
+        node.value = self.hashFun(data.encode()).hexdigest()
+      else:
+        node.value = data
+    else: 
+      if right.value==None:
+        node.value = left.value
+        node.left = left
+      else:
+        node.left = left
+        node.right = right
+        node.value = self.hashFun((left.value+right.value).encode()).hexdigest()
+    return node          
+  def makeTree(self,data,hash=False):
+    nodes = []
+    if len(data)%2 != 0:
+      data.append(data[len(data) - 1])
+    for item in data:
+      node = self.addNode(None,None,item,hash)
+      nodes.append(node)
+    self.levels.append(nodes)
+    for i in range(int(math.log2(len(data)))):
+      newLevel = []
+      for j in range(0,len(nodes),2):
+        if j+1==len(nodes): 
+          node = self.addNode(nodes[j],Leaf(),None)
         else:
-          q.append(pop_leaf.left)
-          q.append(pop_leaf.right)
-
-  def traverse(self):  # 层次遍历
-    if self.root is None:
+          node = self.addNode(nodes[j],nodes[j+1],None)
+        newLevel.append(node)
+      nodes = newLevel
+      self.levels.append(nodes)
+    self.root = nodes[0]
+    return self.root
+    
+  def getProof(self, index):
+    if self.levels is None:
       return None
-    q = [self.root]
-    res = [self.root.item]
-    while q != []:
-      pop_leaf = q.pop(0)
-      if pop_leaf.left is not None:
-        q.append(pop_leaf.left)
-        res.append(pop_leaf.left.item)        
-      if pop_leaf.right is not None:
-        q.append(pop_leaf.right)
-        res.append(pop_leaf.right.item)
-    return res
+    elif index > len(self.levels[0])-1 or index < 0:
+      return None
+    else:
+      proof = []
+      for x in range(len(self.levels)):
+          level_len = len(self.levels[x])
+          if (index == level_len - 1) and (level_len % 2 == 1):  # skip if this is an odd end node
+              index = int(index / 2.)
+              continue
+          isRight = index % 2
+          siblingIndex = index - 1 if isRight else index + 1
+          siblingPos = "left" if isRight else "right"
+          siblingValue = self.levels[x][siblingIndex].value
+          proof.append({siblingPos: siblingValue})
+          index = int(index / 2.)
+      return proof
 
-  def preorder(self,root):  # 先序遍历
-    if root is None:
-      return []
-    result = [root.item]
-    left_item = self.preorder(root.left)
-    right_item = self.preorder(root.right)
-    return result + left_item + right_item
+  def validProof(self, proof, targetHash, merkleRoot):
+    if len(proof) == 0:
+      return targetHash == merkleRoot
+    else:
+      proofHash = targetHash
+      for p in proof:
+        try:
+          # the sibling is a left node
+          sibling = p['left']
+          proofHash = self.hashFun((sibling + proofHash).encode()).hexdigest()
+        except:
+          # the sibling is a right node
+          sibling = p['right']
+          proofHash = self.hashFun((proofHash + sibling).encode()).hexdigest()
+      return proofHash == merkleRoot
+            
+if __name__ == "__main__":
+  t = Tree("md5")
+  t.makeTree(["a","b","c","d"],True)
+  print('*'*10,"merkleRoot",'*'*10)
+  print("root:",t.root.value,"root.left:",t.root.left.value,"root.right:",t.root.right.value)
+  print('*'*10,"merkleTree",'*'*10)
+  for i in range(len(t.levels)):
+    print("level{}:{}".format(i,[j.value for j in t.levels[i]]))
+  for index in range(len(t.levels[0])):
+    print('*'*10,"proof path of {}".format(index),'*'*10)
+    proof = t.getProof(index)
+    print([i for i in proof])
+    print('*'*10,"validProof of {}".format(index),'*'*10)
+    print(t.validProof(proof,t.levels[0][index].value,t.root.value))
   
-  def inorder(self,root):  # 中序序遍历
-    if root is None:
-      return []
-    result = [root.item]
-    left_item = self.inorder(root.left)
-    right_item = self.inorder(root.right)
-    return left_item + result + right_item
-  
-  def postorder(self,root):  # 后序遍历
-    if root is None:
-      return []
-    result = [root.item]
-    left_item = self.postorder(root.left)
-    right_item = self.postorder(root.right)
-    return left_item + right_item + result
-
-t = Tree()
-for i in range(10):
-    t.add(i)
-print('层序遍历:',t.traverse())
-print('先序遍历:',t.preorder(t.root))
-print('中序遍历:',t.inorder(t.root))
-print('后序遍历:',t.postorder(t.root))

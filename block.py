@@ -9,6 +9,7 @@ from config import *
 from transaction import Transaction
 
 import logger
+import merkle
 
 class Block(object):
   def __init__(self, dictionary):
@@ -40,8 +41,11 @@ class Block(object):
     txHash=[]
     for item in self.data:
       txHash.append(item.hash)
-    merkleRoot=utils.sha256("".join(txHash))
-    return merkleRoot
+    #merkleRoot=utils.sha256("".join(txHash))
+    merkleTree = merkle.Tree()
+    merkleRoot = merkleTree.makeTree(txHash)
+    self.merkleRoot = merkleRoot.value
+    return merkleRoot.value
   
   def updateHash(self):
     sha = hashlib.sha256()
@@ -74,6 +78,7 @@ class Block(object):
     Block.logger.debug("verify proof of work")
     self.updateHash()
     if not (str(self.hash[0:self.diffcult]) == '0' * self.diffcult):
+      Block.logger.debug("%s is not worked"%self.hash)
       return False
     Block.logger.debug("%s is truly worked"%self.hash)
     Block.logger.debug("verify transaction data")

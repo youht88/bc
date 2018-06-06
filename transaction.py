@@ -12,6 +12,7 @@ import logger
 
 class TXin(object):
   def __init__(self,dict):
+    TXin.logger = logger.logger
     self.prevHash=dict["prevHash"] if "prevHash" in dict else "" 
     self.index   =dict["index"]    if "index"    in dict else ""
     self.inAddr  =dict["inAddr"]   if "inAddr"   in dict else ""
@@ -28,6 +29,7 @@ class TXin(object):
       self.signD=dict["signD"]
     else:
       sign=dict["sign"] if "sign" in dict else None
+      TXin.logger.critical("sign",sign)
       if sign==None:
         self.signD=""
       else:
@@ -63,8 +65,6 @@ class Transaction(object):
       if "hash" in args:
         self.hash=args["hash"]
       else:
-        Transaction.logger.critical(self.ins)
-        
         self.hash=utils.sha256([utils.obj2json(self.ins),
                                 utils.obj2json(self.outs),
                                 self.timestamp])
@@ -130,13 +130,13 @@ class Transaction(object):
     def isValid(self):
       if self.isCoinbase():
         return self.insLen==1 and self.outsLen==1 and self.outs[0].amount<=REWARD        
-      Transaction.logger.debug("warning","begin verify:",utils.obj2json(self))
+      Transaction.logger.debug("transaction","begin verify:",self.hash)
       for oin in self.ins:
         outPubkey = base64.b64decode(oin.pubkey64D.encode())
         #step1:verify it is mine 
         if not utils.sha256(outPubkey)==oin.inAddr:
           return False
-        Transaction.logger.debug("warning",oin.prevHash,oin.index,"step1 ok")
+        Transaction.logger.debug("transaction",oin.prevHash,oin.index,"step1 ok")
         #step2:verify not to be changed!!!!
         isVerify=utils.verify(
           oin.prevHash+str(oin.index)+oin.inAddr,
@@ -145,6 +145,6 @@ class Transaction(object):
          )
         if isVerify==False:
           return False
-        Transaction.logger.debug("warning",oin.prevHash,oin.index,"step2 ok")
+        Transaction.logger.debug("transaction",oin.prevHash,oin.index,"step2 ok")
         
       return True

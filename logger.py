@@ -1,4 +1,6 @@
 import logging
+import logging.handlers  
+
 import inspect
 
 logger={}
@@ -29,8 +31,9 @@ class Logger(object):
     channel.setFormatter(self.formatter)
     self.logger.addHandler(channel)
     
-  def registHandler(self,filename):
-    channel = logging.FileHandler(filename,mode="w")
+  def registHandler(self,filename,mode="w",maxBytes=2*1024*1024,backupCount=4):
+    #channel = logging.FileHandler(filename,mode="w")
+    channel = logging.handlers.RotatingFileHandler(filename, mode=mode, maxBytes=maxBytes, backupCount=backupCount) 
     channel.setFormatter(self.formatter)
     self.logger.addHandler(channel)
   def getStack(self):
