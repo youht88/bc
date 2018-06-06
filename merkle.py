@@ -91,7 +91,7 @@ class Tree:
             
 if __name__ == "__main__":
   t = Tree("md5")
-  t.makeTree(["a","b","c","d"],True)
+  t.makeTree(["a","b","c","d","e"],True)
   print('*'*10,"merkleRoot",'*'*10)
   print("root:",t.root.value,"root.left:",t.root.left.value,"root.right:",t.root.right.value)
   print('*'*10,"merkleTree",'*'*10)
