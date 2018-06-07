@@ -277,7 +277,19 @@ class Chain(object):
       pass
     self.removeBlock(block)
     block.saveToPool()
-
+  def getSPV(self):
+    blockSPV=[]
+    for block in self.blocks:
+      item = {"txCount":len(block.data),
+              "diffcult": block.diffcult, 
+              "hash":block.hash, 
+              "index": block.index, 
+              "merkleRoot":block.merkleRoot,  
+              "nonce": block.nonce, 
+              "prev_hash":block.prev_hash,  
+              "timestamp": block.timestamp}
+      blockSPV.append(item)
+    return blockSPV        
   def __len__(self):
     return len(self.blocks)
 

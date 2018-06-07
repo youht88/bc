@@ -29,7 +29,6 @@ class TXin(object):
       self.signD=dict["signD"]
     else:
       sign=dict["sign"] if "sign" in dict else None
-      TXin.logger.critical("sign",sign)
       if sign==None:
         self.signD=""
       else:

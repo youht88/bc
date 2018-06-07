@@ -30,7 +30,8 @@ class Node(object):
     self.entryNode=dict["entryNode"]
     self.host=dict["host"]
     self.port=dict["port"]
-    
+    self.isMining=False
+    self.isBlockSyncing=False
     #fetch me node 
     if self.me == None:
       try:
@@ -94,7 +95,7 @@ class Node(object):
           doneNodes.add(node)
           todoNodes=(todoNodes | comeinNodes) - doneNodes
         except Exception as e:
-          traceback.format_exc()
+          Node.logger.critical(node,traceback.format_exc())
       self.nodes =  doneNodes 
       Node.logger.info("nodes:{}".format(doneNodes))
       self.save()
@@ -294,7 +295,8 @@ class Node(object):
       for TX in block.data:
         if TX.isCoinbase():
           continue
-        txFile= os.path.join(BROADCASTED_TRANSACTION_DIR,TX.hash+".json")
+        f = str(TX.timestamp)+"_"+TX.hash+".json"
+        txFile= os.path.join(BROADCASTED_TRANSACTION_DIR,f)
         try:
           os.remove(txFile)
           Node.logger.warn("del:{}".format(txFile))
@@ -303,10 +305,13 @@ class Node(object):
           pass
   def blockPoolSync(self):
     maxindex = self.blockchain.maxindex()
+    Node.logger.info("is BlockSyning {} from pool".format(maxindex+1))
     if os.path.exists(BROADCASTED_BLOCK_DIR):
       fileset=glob.glob(
          os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
-      for filepath in fileset:
+      #for filepath in fileset:
+      if fileset:
+        filepath = fileset[0]
         with open(filepath, 'r') as blockFile:
           try:
             blockDict = json.load(blockFile)
@@ -324,14 +329,13 @@ class Node(object):
                 self.updateUTXO(block)
                 Node.logger.debug("syncblock5.after update utxo {}".format(self.blockchain.utxo.getSummary()))
               else:
-                if self.resolveFork(block):
-                  break
+                self.resolveFork(block)
           except Exception as e:
             Node.logger.critical(traceback.format_exc())
             Node.logger.error("error on:{}".format(filepath))
           finally:
             Node.logger.info("current blockchain high:{}".format(self.blockchain.maxindex()))
-
+    Node.logger.info("end blocksync")
   def resolveFork(self,forkBlock):
     blocks=[forkBlock]
     index = forkBlock.index - 1
@@ -427,6 +431,7 @@ class Node(object):
     newBlock.save()
     
   def mine(self,coinbase):
+    Node.logger.info("is Mining...")
     #sync transaction from txPool
     txPool = self.txPoolSync()  
     txPoolDict=[]
@@ -448,7 +453,7 @@ class Node(object):
     if newBlock==None:
       Node.logger.warn("other miner mined")
       return "other miner mined"
-    Node.logger.warning("end mine.",index)
+    Node.logger.info("end mine.",index)
     #remove transaction from txPool
     self.txPoolRemove(newBlock) 
     
@@ -460,7 +465,6 @@ class Node(object):
     filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
     with open(filename, 'w') as file:
       utils.obj2jsonFile(newBlock,file,sort_keys=True)
-    
     #broadcast to peers
     for peer in self.nodes:
       if peer == self.me:

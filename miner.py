@@ -132,20 +132,23 @@ bestIndex = node.syncOverallChain(args.full)
 
 def blockerProcess():
   while True:
-    #if self.event.wait(timeout=1):
-    #  break
     if args.debug and len(threading.enumerate())!=4: #debug调试时使用
       continue
+    if node.isMining or node.isBlockSyncing:
+      time.sleep(2)
+      continue
+    node.isBlockSyncing=True
     try:
       maxindex = node.blockchain.maxindex()
       fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
       if len(fileset)>=1:        
         node.blockPoolSync()
-      time.sleep(2)
       #print("blockPool={},threads={}".format(node.blockchain.maxindex(),len(threading.enumerate())))
     except Exception as e:
-      traceback.format_exc()
-
+      log.critical(traceback.format_exc())
+    node.isBlockSyncing=False
+    time.sleep(2)
+    
 blocker=utils.CommonThread(blockerProcess,())
 blocker.setDaemon(True)
 blocker.start()
@@ -156,6 +159,10 @@ node.resetUTXO()
 
 def minerProcess():
   while True:
+    if node.isMining or node.isBlockSyncing:
+      time.sleep(2)
+      continue
+    node.isMining=True
     try:
       txPoolFiles=glob.glob(
          os.path.join(BROADCASTED_TRANSACTION_DIR, '*.json'))
@@ -165,11 +172,11 @@ def minerProcess():
         coinbase=utils.obj2dict(t1)
         #mine
         newBlock=node.mine(coinbase)
-      
-      time.sleep(2)
       #print("txPool=",len(txPoolFiles))
     except Exception as e:
-      traceback.format_exc()
+      log.critical(traceback.format_exc())
+    node.isMining=False
+    time.sleep(2)
 
 miner = utils.CommonThread(minerProcess,())
 miner.setDaemon(True)
@@ -219,7 +226,8 @@ def transacted():
   if possible_transaction.isValid():
     #save to file to possible folder
     transaction_hash = possible_transaction.hash
-    filename = BROADCASTED_TRANSACTION_DIR + '%s.json' % transaction_hash
+    transaction_timestamp = possible_transaction.timestamp
+    filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (transaction_timestamp,transaction_hash)
     with open(filename, 'w') as transaction_file:
       utils.obj2jsonFile(possible_transaction,transaction_file,sort_keys=True)
     return jsonify(confirmed=True)
@@ -232,6 +240,11 @@ def transacted():
 def blockchainList():
   blocks = node.blockchain.blocks
   return jsonify(utils.obj2dict(blocks)),200
+
+@app.route('/blockchain/spv', methods=['GET'])
+def blockchainListSPV():
+  blockSPV = node.blockchain.getSPV()
+  return jsonify(utils.obj2dict(blockSPV)),200
 
 @app.route('/blockchain/<int:fromIndex>/<int:toIndex>', methods=['GET'])
 def getRangeBlocks(fromIndex,toIndex):
