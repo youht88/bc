@@ -6,7 +6,7 @@ from chain import UTXO
 from flask import Flask,jsonify,request,render_template,make_response
     
 import requests
-import os
+import os,shutil
 import json
 import sys
 import argparse
@@ -206,6 +206,7 @@ def mined():
   possible_block_data = request.get_json()
   #validate possible_block
   possible_block = Block(possible_block_data)
+  log.info("recieve block index {}-{}".format(possible_block.index,possible_block.nonce))
   if possible_block.isValid():
     #save to file to possible folder
     index = possible_block.index
@@ -223,6 +224,7 @@ def transacted():
   possible_transaction_data = request.get_json()
   #validate possible_block
   possible_transaction = Transaction.parseTransaction(possible_transaction_data)
+  log.info("recieve transaction {}".format(possible_transaction.hash))
   if possible_transaction.isValid():
     #save to file to possible folder
     transaction_hash = possible_transaction.hash
@@ -356,11 +358,11 @@ def getWallete():
 def getBalance(address):
   if len(address)==64:
     balance = node.blockchain.utxo.getBalance(address)
-    return jsonify({"address":address,"blance":balance})
+    return jsonify({"address":address,"pubkey":wallete.pubkey64D,"blance":balance})
   else:
     wallete = Wallete(address)
     balance = node.blockchain.utxo.getBalance(wallete.address)
-    return jsonify({"address":wallete.address,"blance":balance})
+    return jsonify({"address":wallete.address,"pubkey":wallete.pubkey64D,"blance":balance})
 
 @app.route('/wallete/create/<string:name>',methods=['GET'])
 def createWallete(name):
@@ -374,16 +376,19 @@ def createWallete(name):
               "balance":balance}
   return jsonify(response)
 
-@app.route('/wallete/reset/<string:name>',methods=['GET'])
-def syncWallete(name):
-  result=node.httpProcess("http://"+name+"/wallete/me")
+@app.route('/wallete/get/<string:peer>/<name>',methods=['GET'])
+def syncWallete(peer,name):
+  result=node.httpProcess("http://"+peer+"/wallete/"+name)
+  if name=='me':
+    name=peer
   dict=result["response"].json()
   address = dict["address"]
   pubkey64D = dict["pubkey"]
   try:
     os.mkdir("%s%s"%(PRIVATE_DIR,name))
   except:
-    pass
+    shutil.rmtree("%s%s"%(PRIVATE_DIR,name))
+    os.mkdir("%s%s"%(PRIVATE_DIR,name))
   try:
     with open("%s%s/%s"%(PRIVATE_DIR,name,address),"w") as f:
       pass

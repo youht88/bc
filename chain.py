@@ -21,8 +21,9 @@ class UTXO(object):
     UTXO.logger.warn("blockhigh:%i"%block.index)
     while True:
       data = block.data
+      data.reverse() #import!! 倒序检查block内的交易
       for TX in data:
-        unspendOutputs=[]  
+        unspendOutputs=[]
         for idx,txout in enumerate(TX.outs): 
           notFind=True
           for item in spendInputs:
@@ -48,7 +49,9 @@ class UTXO(object):
     return utxoSet
       
   def update(self,block):
-    for TX in block.data:
+    data = block.data
+    data.reverse()  #import!! 倒序检查block内的交易 
+    for TX in data:
       self.updateWithTX(TX)
     
   def updateWithTX(self,TX):   
@@ -83,7 +86,9 @@ class UTXO(object):
     self.utxoSet = utxoSet
     return utxoSet
   def updateAfterRemove(self,prevTXs,block):
-    for TX in block.data:
+    data=block.data
+    data.reverse() #import!! 倒序检查block内的交易
+    for TX in data:
       self.updateWithTXAfterRemove(prevTXs,TX)
   def updateWithTXAfterRemove(self,prevTXs,TX):
     utxoSet=self.utxoSet

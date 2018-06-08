@@ -36,6 +36,8 @@ class TXin(object):
         self.signD=sign.decode()
   def canUnlockWith(self,script):
     return True
+    if not self.pubkey64D == script:
+      TXin.logger.critical("canUnlockWith error:self.pubkey64D != script")
     #return self.pubkey64D == script
   def toDict(self):
     info={}

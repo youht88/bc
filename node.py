@@ -309,9 +309,9 @@ class Node(object):
     if os.path.exists(BROADCASTED_BLOCK_DIR):
       fileset=glob.glob(
          os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
-      #for filepath in fileset:
-      if fileset:
-        filepath = fileset[0]
+      for filepath in fileset:
+      #if fileset:
+        #filepath = fileset[0]
         with open(filepath, 'r') as blockFile:
           try:
             blockDict = json.load(blockFile)
@@ -328,8 +328,10 @@ class Node(object):
                 Node.logger.debug("syncblock4.befor update utxo {}".format(self.blockchain.maxindex()))
                 self.updateUTXO(block)
                 Node.logger.debug("syncblock5.after update utxo {}".format(self.blockchain.utxo.getSummary()))
+                break
               else:
-                self.resolveFork(block)
+                if self.resolveFork(block):
+                  break
           except Exception as e:
             Node.logger.critical(traceback.format_exc())
             Node.logger.error("error on:{}".format(filepath))
