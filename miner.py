@@ -159,6 +159,8 @@ node.resetUTXO()
 
 def minerProcess():
   while True:
+    if args.debug and len(threading.enumerate())!=4: #debug调试时使用
+      continue
     if node.isMining or node.isBlockSyncing:
       time.sleep(2)
       continue
@@ -358,7 +360,7 @@ def getWallete():
 def getBalance(address):
   if len(address)==64:
     balance = node.blockchain.utxo.getBalance(address)
-    return jsonify({"address":address,"pubkey":wallete.pubkey64D,"blance":balance})
+    return jsonify({"address":address,"blance":balance})
   else:
     wallete = Wallete(address)
     balance = node.blockchain.utxo.getBalance(wallete.address)
@@ -382,21 +384,22 @@ def syncWallete(peer,name):
   if name=='me':
     name=peer
   dict=result["response"].json()
-  address = dict["address"]
-  pubkey64D = dict["pubkey"]
-  try:
-    os.mkdir("%s%s"%(PRIVATE_DIR,name))
-  except:
-    shutil.rmtree("%s%s"%(PRIVATE_DIR,name))
-    os.mkdir("%s%s"%(PRIVATE_DIR,name))
-  try:
-    with open("%s%s/%s"%(PRIVATE_DIR,name,address),"w") as f:
-      pass
-    with open("%s%s/pubkey.pem"%(PRIVATE_DIR,name),"wb") as f:
-      f.write(base64.b64decode(pubkey64D.encode()))
-  except Exception as e:
-    raise e
-    return "error on wallete/reset/"+name
+  if "address" in dict:
+    address = dict["address"]
+    pubkey64D = dict["pubkey"]
+    try:
+      os.mkdir("%s%s"%(PRIVATE_DIR,name))
+    except:
+      shutil.rmtree("%s%s"%(PRIVATE_DIR,name))
+      os.mkdir("%s%s"%(PRIVATE_DIR,name))
+    try:
+      with open("%s%s/%s"%(PRIVATE_DIR,name,address),"w") as f:
+        pass
+      with open("%s%s/pubkey.pem"%(PRIVATE_DIR,name),"wb") as f:
+        f.write(base64.b64decode(pubkey64D.encode()))
+    except Exception as e:
+      raise e
+      return "error on wallete/reset/"+name
   return jsonify(dict)
 
 @app.route('/trade/<nameFrom>/<nameTo>/<amount>',methods=['GET'])

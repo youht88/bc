@@ -3,6 +3,7 @@ from transaction import TXout
 import utils
 import json
 import os
+import copy
 
 from config import *
 
@@ -20,7 +21,7 @@ class UTXO(object):
     block = blockchain.lastblock()
     UTXO.logger.warn("blockhigh:%i"%block.index)
     while True:
-      data = block.data
+      data = copy.deepcopy(block.data)
       data.reverse() #import!! 倒序检查block内的交易
       for TX in data:
         unspendOutputs=[]
@@ -49,8 +50,7 @@ class UTXO(object):
     return utxoSet
       
   def update(self,block):
-    data = block.data
-    data.reverse()  #import!! 倒序检查block内的交易 
+    data = copy.deepcopy(block.data)
     for TX in data:
       self.updateWithTX(TX)
     
@@ -86,7 +86,7 @@ class UTXO(object):
     self.utxoSet = utxoSet
     return utxoSet
   def updateAfterRemove(self,prevTXs,block):
-    data=block.data
+    data=copy.deepcopy(block.data)
     data.reverse() #import!! 倒序检查block内的交易
     for TX in data:
       self.updateWithTXAfterRemove(prevTXs,TX)
@@ -237,7 +237,7 @@ class Chain(object):
       for ins in TX.ins:
         transaction = self.findTransaction(ins.prevHash)
         if transaction:
-          transactions[TX.hash]=transaction
+          transactions[transaction.hash]=transaction
     return transactions
   def lastblock(self):
     return self.blocks[-1]

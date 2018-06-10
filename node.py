@@ -25,7 +25,6 @@ import traceback
 class Node(object):
   def __init__(self,dict):
     Node.logger = logger.logger
-    print('*'*40,Node.logger)
     self.me = dict["me"]
     self.entryNode=dict["entryNode"]
     self.host=dict["host"]
@@ -341,25 +340,25 @@ class Node(object):
   def resolveFork(self,forkBlock):
     blocks=[forkBlock]
     index = forkBlock.index - 1
-    self.logger.info("fork0.begin resolveFork {} {}".format(blocks[0].index,index))
+    Node.logger.info("fork0.begin resolveFork,fork is {}-{}".format(blocks[0].index,blocks[0].nonce))
     while True :
       fork=blocks[-1]
       fileset=glob.glob(
            os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(index)))
       i=-1
       if len(fileset)==0:
-        Node.logger.info("not find prev block in blockPool {}".format(index))
+        Node.logger.info("not find prev block #{} in blockPool".format(index))
         break
       recursion=False
       for i,filepath in enumerate(fileset):
         with open(filepath,'r') as blockFile:
           block = Block(json.load(blockFile))
-          Node.logger.info("fork1.test block.isValid")
+          Node.logger.info("fork1.poolblock {}-{} isValid?".format(block.index,block.nonce))  
           if block.isValid():
-            Node.logger.info("fork2.test fork.prev_hash == block.hash")
+            Node.logger.info("fork2.forkblock({}-{}) can link poolblock({}-{})?".format(fork.index,fork.nonce,block.index,block.nonce))
             if fork.prev_hash != block.hash:
               continue
-            Node.logger.info("fork3.test block.prev_hash can link blockchain {} {}".format(block.prev_hash,self.blockchain.findBlockByIndex(index - 1).hash))
+            Node.logger.info("fork3.poolblock({}-{}) can link blockchain({}-{})? or isGenesisblock? {}".format(block.index,block.nonce,self.blockchain.findBlockByIndex(index - 1).index,self.blockchain.findBlockByIndex(index - 1).nonce,index==0))
             blocks.append(block) 
             if index==0 or block.prev_hash == self.blockchain.findBlockByIndex(index - 1).hash:
               #done,replace blocks in blockchain,move correspondent into blockPool
@@ -367,15 +366,14 @@ class Node(object):
               index = block.index - 1
               
               for b in blocks[1:]:
-                Node.logger.info("fork6.b.index {}".format(b.index))
                 idx = b.index
+                Node.logger.debug("fork6.moveBlockToPool {}-{}".format(idx,self.blockchain.blocks[idx].nonce))
                 self.blockchain.moveBlockToPool(idx) 
                 
               Node.logger.info("forkstep2> add new blocks")
-              Node.logger.info("fork7.blocks {} {}".format(type(blocks),blocks))
               blocks.reverse()
               for b in blocks:
-                Node.logger.info("fork8.b {}".format(utils.obj2json(b)))
+                Node.logger.info("fork8.addblock {}-{}".format(b.index,b.nonce))
                 if self.blockchain.addBlock(b):
                   self.txPoolRemove(b)
                   b.save()
@@ -383,9 +381,8 @@ class Node(object):
                   self.updateUTXO(b)
               return True
             else:
-              Node.logger.info("fork4.netx block")
               index = block.index - 1
-              Node.logger.info("fork5.test {}".format(blocks,index))
+              Node.logger.info("fork4.nextblock {}".format(index))
               recursion=True
               break
       if i==len(fileset) - 1 and not recursion:
@@ -402,9 +399,11 @@ class Node(object):
       wTo = Wallete(self.me)
     else:
       wTo = Wallete(nameTo)
-    return self.trade(
-      wFrom.key[0],wFrom.key[1],wTo.key[1],amount)
-
+    if wFrom.key[0]:
+      return self.trade(
+        wFrom.key[0],wFrom.key[1],wTo.key[1],amount)
+    else:
+      return "{} have not private key on this node".format(nameFrom)
   def trade(self,inPrvkey,inPubkey,outPubkey,amount):
     newTX=Transaction.newTransaction(
       inPrvkey,inPubkey,outPubkey,amount,self.tradeUTXO)
