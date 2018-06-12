@@ -24,6 +24,7 @@ import base64
 from network import Gossip
 
 import traceback
+import copy
 
 
 #args check & use help
@@ -74,6 +75,12 @@ if not os.path.exists(UTXO_DIR):
   os.makedirs(UTXO_DIR)
 if not os.path.exists(BROADCASTED_BLOCK_DIR):
   os.makedirs(BROADCASTED_BLOCK_DIR)
+
+#clear transactionPool
+try:
+  shutil.rmtree("%s"%(BROADCASTED_TRANSACTION_DIR))
+except:
+  pass
 if not os.path.exists(BROADCASTED_TRANSACTION_DIR):
   os.makedirs(BROADCASTED_TRANSACTION_DIR)
 
@@ -84,9 +91,8 @@ logger.logger = log
 
 #make pvkey,pbkey,wallete address  
 myWallete=Wallete(args.name)
-    
 log.error(args.me,args.port)
-    
+
 #make node
 node=Node({"host":args.host,
            "port":args.port,
@@ -223,21 +229,40 @@ def mined():
 
 @app.route('/transacted', methods=['POST'])
 def transacted():
-  possible_transaction_data = request.get_json()
+  txDict = request.get_json()
   #validate possible_block
-  possible_transaction = Transaction.parseTransaction(possible_transaction_data)
-  log.info("recieve transaction {}".format(possible_transaction.hash))
-  if possible_transaction.isValid():
-    #save to file to possible folder
-    transaction_hash = possible_transaction.hash
-    transaction_timestamp = possible_transaction.timestamp
-    filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (transaction_timestamp,transaction_hash)
-    with open(filename, 'w') as transaction_file:
-      utils.obj2jsonFile(possible_transaction,transaction_file,sort_keys=True)
+  TX = Transaction.parseTransaction(txDict)
+  log.info("recieve transaction {}".format(TX.hash))
+  if TX.isValid():
+    utxoSet = copy.deepcopy(node.isolateUTXO.utxoSet)
+    log.critical("1",utxoSet)
+    if node.isolateUTXO.updateWithTX(TX,utxoSet):
+      node.isolateUTXO.utxoSet = utxoSet
+      #save to file to transaction pool
+      TXhash = TX.hash
+      TXtimestamp = TX.timestamp
+      filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (TXtimestamp,TXhash)
+      with open(filename, 'w') as f:
+        utils.obj2jsonFile(TX,f,sort_keys=True)
+      #handle isolatePool
+      isolatePool = copy.copy(node.isolatePool) 
+      for isolateTX in isolatePool:
+        if node.isolateUTXO.updateWithTX(isolateTX,utxoSet):
+          node.isolatePool.remove(isolateTX)
+          #save to file to transaction pool
+          TXhash = isolateTX.hash
+          TXtimestamp = isolateTX.timestamp
+          filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (TXtimestamp,TXhash)
+          with open(filename, 'w') as f:
+            utils.obj2jsonFile(isolateTX,f,sort_keys=True)
+        else:
+          utxoSet = copy.deepcopy(node.isolateUTXO.utxoSet)
+    else:
+      node.isolatePool.append(TX)
     return jsonify(confirmed=True)
   else:
     #ditch it
-    utils.warning("transaction is not valid,hash is:",possible_transaction.hash)
+    utils.warning("transaction is not valid,hash is:",TX.hash)
     return jsonify(confirmed=False)
 
 @app.route('/blockchain', methods=['GET'])
@@ -269,6 +294,21 @@ def getBlocks(index):
   blocks = node.blockchain.findRangeBlocks(index,index)
   return jsonify(utils.obj2dict(blocks))
   
+@app.route('/blockchain/get/<string:peer>/<int:index>/',methods=['GET'])
+def getRemoteBlocks(peer,index):
+  result=node.httpProcess("http://"+peer+"/blockchain/"+str(index))
+  blocksDict=result["response"].json()
+  if blocksDict:
+    block = Block(blocksDict[0])
+    if block.isValid():
+      #save to file to possible folder
+      nonce = block.nonce
+      filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
+      with open(filename, 'w') as f:
+        utils.obj2jsonFile(block,f,sort_keys=True)
+    return jsonify(utils.obj2dict(block))
+  else:
+    return "no index {} from peer {}".format(index,peer) 
 @app.route('/utxo/<string:address>/',methods=['GET'])
 def findUTXO(address):
   utxo = node.blockchain.utxo.findUTXO(address)
@@ -288,7 +328,19 @@ def utxoReindex():
 def utxoGet():
   utxoSet = node.blockchain.utxo
   utxoSummary = node.blockchain.utxo.getSummary()
-  return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet)})
+  return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet,sort_keys=False)})
+
+@app.route('/utxo/get/isolate',methods=['GET'])
+def utxoGetIsolate():
+  utxoSet = node.isolateUTXO
+  utxoSummary = node.isolateUTXO.getSummary()
+  return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet,sort_keys=False)})
+
+@app.route('/utxo/get/trade',methods=['GET'])
+def utxoGetTrade():
+  utxoSet = node.tradeUTXO.utxoSet
+  utxoSummary = node.tradeUTXO.getSummary()
+  return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet,sort_keys=False)})
 
 @app.route('/pool/transactions', methods=['GET'])
 def getTxPool():
@@ -409,12 +461,6 @@ def newTrade(nameFrom,nameTo,amount):
     return jsonify(response)
   else:
     return "not have enouth money"
-
-@app.route('/trade/utxo',methods=['GET'])
-def getTradeUTXO():
-  utxoSet = node.tradeUTXO.utxoSet
-  utxoSummary = node.tradeUTXO.getSummary()
-  return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet)})
   
 @app.route('/client/<key>/<value>',methods=['GET'])
 def cli(key,value):
@@ -447,4 +493,5 @@ def getValue(key):
 
 #start program
 if __name__ == '__main__':
+  app.config['JSON_SORT_KEYS']=False
   app.run(host=node.host, port=node.port,debug=args.debug,threaded=True)

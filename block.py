@@ -74,7 +74,7 @@ class Block(object):
   def isValid(self):
     if self.index == 0:
       return True
-    Block.logger.debug("verify block #"+str(self.index))
+    Block.logger.debug("verify block #{}-{}".format(str(self.index),self.nonce))
     Block.logger.debug("verify proof of work")
     self.updateHash()
     if not (str(self.hash[0:self.diffcult]) == '0' * self.diffcult):

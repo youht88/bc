@@ -85,7 +85,7 @@ class Transaction(object):
     @staticmethod
     def newCoinbase(outAddr):
       ins=[TXin({"prevHash":"","index":-1,"inAddr":"","pubkey":None,"sign":None})]
-      outs=[TXout({"amount":REWARD,"outAddr":outAddr})]
+      outs=[TXout({"amount":float(REWARD),"outAddr":outAddr})]
       return Transaction(ins=ins,outs=outs)
    
     @staticmethod
@@ -100,6 +100,7 @@ class Transaction(object):
       #                        }
       #     }
       #print("newTransaction.todo","\n",todo)
+      amount = float(amount)
       if todo["acc"] < amount:
         Transaction.logger.warning("%s not have enough money."%inAddr)
         return None
@@ -118,7 +119,8 @@ class Transaction(object):
       if todo["acc"] > amount:
         outs.append(TXout({"amount":todo["acc"]-amount,"outAddr":inAddr}))
       TX = Transaction(ins=ins,outs=outs)
-      utxo.updateWithTX(TX)
+      if not utxo.updateWithTX(TX):
+        return False
       return TX
   
     def isCoinbase(self):
@@ -136,8 +138,9 @@ class Transaction(object):
         outPubkey = base64.b64decode(oin.pubkey64D.encode())
         #step1:verify it is mine 
         if not utils.sha256(outPubkey)==oin.inAddr:
+          Transaction.logger.error("transaction",oin.prevHash,oin.index,"step1: inAddr can pass pubkey? false")
           return False
-        Transaction.logger.debug("transaction",oin.prevHash,oin.index,"step1 ok")
+        Transaction.logger.debug("transaction",oin.prevHash,oin.index,"step1: inAddr can pass pubkey? ok")
         #step2:verify not to be changed!!!!
         isVerify=utils.verify(
           oin.prevHash+str(oin.index)+oin.inAddr,
@@ -145,7 +148,7 @@ class Transaction(object):
           outPubkey
          )
         if isVerify==False:
+          Transaction.logger.error("transaction",oin.prevHash,oin.index,"step2: can pass sign verify? false")
           return False
-        Transaction.logger.debug("transaction",oin.prevHash,oin.index,"step2 ok")
-        
+        Transaction.logger.debug("transaction",oin.prevHash,oin.index,"step2: can pass sign verify? ok")
       return True

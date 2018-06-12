@@ -31,6 +31,9 @@ class Node(object):
     self.port=dict["port"]
     self.isMining=False
     self.isBlockSyncing=False
+    self.isolateUTXO=None
+    self.isolatePool=[]
+    self.tradeUTXO = None
     #fetch me node 
     if self.me == None:
       try:
@@ -195,7 +198,7 @@ class Node(object):
            if block.isValid():
              block.saveToPool()
       except:
-         Node.logger.error("error on syncRangeChain")
+         Node.logger.error("error on syncRangeChain",traceback.format_exc())
 
     cnt = len(nodes)
     res="nodes=[]"
@@ -261,16 +264,19 @@ class Node(object):
     return bestIndex
       
   def resetUTXO(self):
-    self.blockchain.utxo = UTXO()
     self.blockchain.utxo.reset(self.blockchain)
     #定义tradeUTXO,避免与blockchain的UTXO互相影响，更新trade时会更新tradeUTXO，以保证多次交易。更新block时使用blockchain下的UTXO
     self.tradeUTXO = UTXO()
     self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
+    self.isolateUTXO = UTXO()
+    self.isolateUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
     return self.blockchain.utxo.utxoSet
   
   def updateUTXO(self,newblock):
+    Node.logger.critical("updateUTXO!!!")
     self.blockchain.utxo.update(newblock)
     self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
+    self.isolateUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
     
   def txPoolSync(self):
     txPool=[]
@@ -325,7 +331,10 @@ class Node(object):
                 Node.logger.debug("syncblock3.remove file {}".format(filepath))
                 os.remove(filepath)
                 Node.logger.debug("syncblock4.befor update utxo {}".format(self.blockchain.maxindex()))
-                self.updateUTXO(block)
+                if block.index==0:
+                  self.resetUTXO()
+                else:
+                  self.updateUTXO(block)
                 Node.logger.debug("syncblock5.after update utxo {}".format(self.blockchain.utxo.getSummary()))
                 break
               else:
@@ -335,7 +344,8 @@ class Node(object):
             Node.logger.critical(traceback.format_exc())
             Node.logger.error("error on:{}".format(filepath))
           finally:
-            Node.logger.info("current blockchain high:{}".format(self.blockchain.maxindex()))
+            lastblock = self.blockchain.lastblock()
+            Node.logger.info("current blockchain high:{}-{}".format(lastblock.index,lastblock.nonce))
     Node.logger.info("end blocksync")
   def resolveFork(self,forkBlock):
     blocks=[forkBlock]
@@ -421,6 +431,9 @@ class Node(object):
         except Exception as e:
           Node.logger.error("%s error is %s"%(peer,e))  
       Node.logger.info("transaction广播完成")
+    else:
+      node.logger.critical("double spend!!")
+      self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet)
     return newTXdict
 
   def genesisBlock(self,coinbase):

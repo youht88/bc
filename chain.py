@@ -12,14 +12,16 @@ import logger
 class UTXO(object):
   def __init__(self):
     UTXO.logger = logger.logger
-    self.utxoSet=[]
+    # {abc123:[{"index":0,"txout":TXout1},{"index":1,"txout":TXout2}],
+    #  xyz456:[{"index":0,"txout":TXout3}]}
+    self.utxoSet={}
   def reset(self,blockchain):
     #print(address,"\n")
     #print(utils.obj2json(self,indent=2))
     utxoSet={}
     spendInputs=[]
     block = blockchain.lastblock()
-    UTXO.logger.warn("blockhigh:%i"%block.index)
+    UTXO.logger.warn("blockhigh:{}-{}".format(block.index,block.nonce))
     while True:
       data = copy.deepcopy(block.data)
       data.reverse() #import!! 倒序检查block内的交易
@@ -51,17 +53,22 @@ class UTXO(object):
       
   def update(self,block):
     data = copy.deepcopy(block.data)
+    utxoSet = copy.deepcopy(self.utxoSet)
     for TX in data:
-      self.updateWithTX(TX)
-    
-  def updateWithTX(self,TX):   
-    utxoSet=self.utxoSet
+      if not self.updateWithTX(TX,utxoSet):
+        return False
+    self.utxoSet = utxoSet #maybe mem leek,check later
+    return True
+  def updateWithTX(self,TX,utxoSet=None):
+    if not utxoSet:
+      utxoSet=self.utxoSet
     #ins
     if TX.isCoinbase() == False:
       for idx,txin in enumerate(TX.ins):
         try:
           outs=utxoSet[txin.prevHash]
         except:
+          #return False
           raise Exception("double spend")
         for i,out in enumerate(outs) :
           if out["index"] == txin.index:
@@ -70,7 +77,8 @@ class UTXO(object):
           try:
             del utxoSet[txin.prevHash]
           except:
-            raise Exception("double pay")
+            #return False
+            raise Exception("double spend")
         else:
           utxoSet[txin.prevHash]=outs
     #outs
@@ -83,8 +91,7 @@ class UTXO(object):
                                  })
     if not unspendOutputs==[]:
       utxoSet[TX.hash]=unspendOutputs
-    self.utxoSet = utxoSet
-    return utxoSet
+    return True
   def updateAfterRemove(self,prevTXs,block):
     data=copy.deepcopy(block.data)
     data.reverse() #import!! 倒序检查block内的交易
@@ -138,20 +145,20 @@ class UTXO(object):
   def findUTXO(self,address):
     utxoSet = self.utxoSet
     findUtxoSet={}
-    for hash in utxoSet:
-      outs = utxoSet[hash]
+    for uhash in utxoSet:
+      outs = utxoSet[uhash]
       unspendOutputs=[]
       for out in outs:
         if out["txout"].canbeUnlockWith(address):
           unspendOutputs.append({"index":out["index"],"txout":out["txout"]})
       if not unspendOutputs==[]:
-        findUtxoSet[hash]=unspendOutputs
+        findUtxoSet[uhash]=unspendOutputs
     return findUtxoSet
   def getBalance(self,address):
     total=0
     utxoSet=self.findUTXO(address)
-    for hash in utxoSet:
-      outs = utxoSet[hash]
+    for uhash in utxoSet:
+      outs = utxoSet[uhash]
       for out in outs:
         total = total + out["txout"].amount
     return total
@@ -168,20 +175,21 @@ class UTXO(object):
     acc=0
     unspend = {}
     utxoSet = self.findUTXO(address)
-    for hash in utxoSet:
-      outs = utxoSet[hash]
+    for uhash in utxoSet:
+      outs = utxoSet[uhash]
       for out in outs:
         acc = acc + out["txout"].amount
-        unspend[hash]={"index":out["index"],"amount":out["txout"].amount}
+        unspend[uhash]={"index":out["index"],"amount":out["txout"].amount}
         if acc >=amount:
           break
       if acc >= amount :
         break
     return {"acc":acc,"unspend":unspend}
-      
+
 class Chain(object):
   def __init__(self, blocks):
     self.blocks = blocks
+    self.utxo = UTXO()
     Chain.logger = logger.logger
   def isValid(self):
     for index, cur_block in enumerate(self.blocks[1:]):
@@ -191,7 +199,7 @@ class Chain(object):
         return False
       if not cur_block.isValid():
         #checks the hash
-        Chain.logger.error("cur_block {} false".format(index))
+        Chain.logger.error("cur_block {}-{}  false".format(index,cur_block.nonce))
         return False
       if prev_block.hash != cur_block.prev_hash:
         Chain.logger.error("block ",cur_block.index," hash error",prev_block.hash,cur_block.prev_hash)
@@ -209,19 +217,19 @@ class Chain(object):
     else:
       return False
 
-  def findBlockByHash(self, hash):
+  def findBlockByHash(self, uhash):
     for b in self.blocks:
-      if b.hash == hash:
+      if b.hash == uhash:
         return b
     return False
   
-  def findTransaction(self,hash):
+  def findTransaction(self,uhash):
     block = self.lastblock()
     transaction=None
     while True:
       data=block.data
       for TX in data:
-        if TX.hash == hash: 
+        if TX.hash == uhash: 
           transaction = TX
           break
       block = self.findBlockByHash(block.prev_hash)
@@ -246,10 +254,10 @@ class Chain(object):
   def addBlock(self, new_block):
     if new_block.index!=0:
       if new_block.index > len(self) :
-        Chain.logger.warn("new block",new_block.index,"has error index.")
+        Chain.logger.warn("new block {}-{} has error index.".format(new_block.index,new_block.nonce))
         return False  
       if new_block.prev_hash != self.blocks[new_block.index - 1].hash:
-        Chain.logger.warn("new block",new_block.index,"has error prev_hash.")
+        Chain.logger.warn("new block {}-{} has error prev_hash.".format(new_block.index,new_block.nonce))
         return False
     #blockDict = utils.obj2dict(new_block)
     #self.blocks.append(Block(blockDict))
