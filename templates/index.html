@@ -1,10 +1,32 @@
-<!DOCTYPE html>
 <html>
+  <head>
+  <script type="text/javascript" src="/static/socket.io.dev.js"></script>
+  </head>
   <body>
-    <div>
-       <h1>hello react test</h1>
-    </div>
-    <div id="todo"></div>
-    <script type="text/javascript" src="/static/dist/main.js"> </script>
+  <h1 id="h1"></h1>
+  <h2 id="h2"></h2>
+  <h3 id="h3"></h3>
+  <h4 id="h4"></h4>
+  <script type="text/javascript" charset="utf-8">
+    var socket = io.connect('http://' + document.domain + ':' + location.port);
+    socket.on('connect', function() {
+      socket.send("youht!!")
+      socket.emit('my event', {data: 'I\'m connected!'});
+        
+    });
+    socket.on('my response',function(json){
+       document.getElementById("h2").innerText=json.x+","+json.y
+    });
+    socket.on('idx',function(json){
+       document.getElementById("h3").innerText=json.idx
+    });
+    socket.on('idx1',function(msg){
+       document.getElementById("h4").innerText=msg
+    });
+    socket.on('message',function(msg){
+       document.getElementById("h1").innerText=msg
+    });
+    
+  </script>
   </body>
 </html>

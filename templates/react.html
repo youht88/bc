@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!--<script src="/static/src/lib/babel-core-browser-5.8.24.js"></script>
+    <script src="/static/src/lib/react.js"></script>
+    <script src="/static/src/lib/react-dom.js"></script>
+    -->    
+  </head>
+  <body>
+    <div id="container"></div>
+    <script type="text/javascript" charset="utf-8">
+      window.onload = function(){console.log("window start")}
+      window.onerror = function(msg, url, line,column,error){  
+        alert("\n错误信息：" + msg+       
+              "\n所在文件：" + url+         
+              "\n错误行号：" + line+
+              "\n错误列号：" + column);      
+        }
+    </script>       
+    <script type="text/javascript" src="/static/dist/main.js"> 
+    </script>
+  </body>
+</html>
