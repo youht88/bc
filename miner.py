@@ -4,6 +4,8 @@ from block import Block
 from transaction import Transaction
 from chain import UTXO
 from flask import Flask,jsonify,request,render_template,make_response
+from flask_socketio import SocketIO
+from flask_socketio import send,emit
     
 import requests
 import os,shutil
@@ -37,7 +39,7 @@ parser.add_argument("--name",type=str,help="name of wallete")
 parser.add_argument("--full",action="store_true",help="full sync")
 parser.add_argument("--syncNode",action="store_true",help="if sync overall node")
 parser.add_argument("--debug",action="store_true",help="if debug mode ")
-
+parser.add_argument("--logging",type=str,choices=["debug","info","warn","error","critical"],default="debug",help="logging level:debug info warn error critical")
 args=parser.parse_args()
 
 #make and change work dir use args.me,otherwise use current dir
@@ -85,7 +87,7 @@ if not os.path.exists(BROADCASTED_TRANSACTION_DIR):
   os.makedirs(BROADCASTED_TRANSACTION_DIR)
 
 #set logger
-log = logger.Logger("miner","debug")
+log = logger.Logger("miner",args.logging)
 log.registHandler("./miner.log")
 logger.logger = log
 
@@ -100,7 +102,7 @@ node=Node({"host":args.host,
            "me":args.me})
                
 app = Flask(__name__)
-
+socketio = SocketIO(app,async_mode="threading")
 #register me and get all alive ndoe list
 if args.syncNode:
   node.syncOverallNodes()
@@ -137,6 +139,7 @@ if len(localChain.blocks)==0:
 bestIndex = node.syncOverallChain(args.full) 
 
 def blockerProcess():
+  prevFileset=[]
   while True:
     if args.debug and len(threading.enumerate())!=4: #debug调试时使用
       continue
@@ -147,9 +150,9 @@ def blockerProcess():
     try:
       maxindex = node.blockchain.maxindex()
       fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
-      if len(fileset)>=1:        
+      if len(fileset)>=1 and fileset!=prevFileset: #与上一次files集合不同
+        prevFileset = fileset
         node.blockPoolSync()
-      #print("blockPool={},threads={}".format(node.blockchain.maxindex(),len(threading.enumerate())))
     except Exception as e:
       log.critical(traceback.format_exc())
     node.isBlockSyncing=False
@@ -347,6 +350,9 @@ def getTxPool():
   txPool = node.txPoolSync() 
   data = json.dumps(txPool)
   return data
+@app.route('/pool/isolate', methods=['GET'])
+def getIsolatePool():
+  return jsonify(utils.obj2dict(node.isolatePool,sort_keys=False))
 
 @app.route('/lastblock',methods=['GET'])
 def lastblock():
@@ -383,8 +389,12 @@ def default():
   return "hello youht"
 
 @app.route('/index',methods=['GET'])
-def react():
+def index():
   return render_template('index.html',data="youht")
+
+@app.route('/react',methods=['GET'])
+def react():
+  return render_template('react.html',data="youht")
 
 @app.route('/hash',methods=['GET'])
 def testHash():
@@ -491,7 +501,26 @@ def getValue(key):
   response = myGossip.getValue(key)
   return jsonify(response)
 
+@socketio.on('message')
+def handle_message(message):
+  print('received message:'+message)
+  send("hello "+message)
+  
+@socketio.on('json')
+def handle_json(json):
+  print('received json:'+str(json))
+  send({"a":1,"b":2},json=True)
+  
+@socketio.on('my event')
+def handle_my_eustom_event(json):
+  print('received my event json:'+str(json),type(json))
+  emit('my response',{"x":"abc","y":999})
+  for i in range(100):
+    emit('idx',{"idx":i})
+    emit('idx1',hashlib.sha256(str(i).encode()).hexdigest())
+    time.sleep(0.5)  
+
 #start program
 if __name__ == '__main__':
   app.config['JSON_SORT_KEYS']=False
-  app.run(host=node.host, port=node.port,debug=args.debug,threaded=True)
+  socketio.run(app,host=node.host, port=node.port,debug=args.debug)

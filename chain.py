@@ -68,8 +68,8 @@ class UTXO(object):
         try:
           outs=utxoSet[txin.prevHash]
         except:
-          #return False
-          raise Exception("double spend")
+          UTXO.logger.critical("1.double spend")
+          return False
         for i,out in enumerate(outs) :
           if out["index"] == txin.index:
             del outs[i]
@@ -77,8 +77,8 @@ class UTXO(object):
           try:
             del utxoSet[txin.prevHash]
           except:
-            #return False
-            raise Exception("double spend")
+            UTXO.logger.critical("2.double spend")
+            return False
         else:
           utxoSet[txin.prevHash]=outs
     #outs
@@ -252,16 +252,16 @@ class Chain(object):
   def maxindex(self):
     return self.blocks[-1].index
   def addBlock(self, new_block):
-    if new_block.index!=0:
+    if new_block.index >= 1:
       if new_block.index > len(self) :
         Chain.logger.warn("new block {}-{} has error index.".format(new_block.index,new_block.nonce))
         return False  
       if new_block.prev_hash != self.blocks[new_block.index - 1].hash:
         Chain.logger.warn("new block {}-{} has error prev_hash.".format(new_block.index,new_block.nonce))
         return False
-    #blockDict = utils.obj2dict(new_block)
-    #self.blocks.append(Block(blockDict))
-    self.blocks.append(new_block)
+      self.blocks.append(new_block)
+    elif new_block.index==0:
+      self.blocks.append(new_block)
     return True
   def removeBlock(self,old_block):
     index = old_block.index

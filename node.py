@@ -97,7 +97,7 @@ class Node(object):
           doneNodes.add(node)
           todoNodes=(todoNodes | comeinNodes) - doneNodes
         except Exception as e:
-          Node.logger.critical(node,traceback.format_exc())
+          Node.logger.critical(node)
       self.nodes =  doneNodes 
       Node.logger.info("nodes:{}".format(doneNodes))
       self.save()
@@ -207,6 +207,7 @@ class Node(object):
       path = []
       begin = fromIndex
       end = fromIndex + step - 1
+      if end<0: end=0
       for i in range(cnt):
         path.append("blockchain/{}/{}".format(begin,end))
         begin = end +1
@@ -274,10 +275,12 @@ class Node(object):
   
   def updateUTXO(self,newblock):
     Node.logger.critical("updateUTXO!!!")
-    self.blockchain.utxo.update(newblock)
-    self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
-    self.isolateUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
-    
+    if self.blockchain.utxo.update(newblock):
+      self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
+      self.isolateUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
+      return True
+    else:
+      return False
   def txPoolSync(self):
     txPool=[]
     #We're assuming that the folder and at least initial block exists
@@ -322,21 +325,26 @@ class Node(object):
             blockDict = json.load(blockFile)
             block = Block(blockDict)
             if block.isValid():
-              Node.logger.debug("syncblock0.maxindex {}".format(self.blockchain.maxindex()))
+              Node.logger.debug("syncblock0.current maxindex {}".format(self.blockchain.maxindex()))
               if self.blockchain.addBlock(block):
-                Node.logger.debug("syncblock1. txPoolRemove".format(block.index))
-                self.txPoolRemove(block)
-                Node.logger.debug("syncblock2.block.save")
-                block.save()
-                Node.logger.debug("syncblock3.remove file {}".format(filepath))
-                os.remove(filepath)
-                Node.logger.debug("syncblock4.befor update utxo {}".format(self.blockchain.maxindex()))
                 if block.index==0:
-                  self.resetUTXO()
+                  doutxo = self.resetUTXO()
                 else:
-                  self.updateUTXO(block)
-                Node.logger.debug("syncblock5.after update utxo {}".format(self.blockchain.utxo.getSummary()))
-                break
+                  doutxo = self.updateUTXO(block)
+                Node.logger.debug("syncblock1.after update utxo {},and this fun is {}".format(self.blockchain.utxo.getSummary(),doutxo))
+                if doutxo:
+                  Node.logger.debug("syncblock2. txPoolRemove".format(block.index))
+                  self.txPoolRemove(block)
+                  Node.logger.debug("syncblock3.block.save")
+                  block.save()
+                  Node.logger.debug("syncblock4.remove file {}".format(filepath))
+                  block.removeFromPool()
+                  Node.logger.debug("syncblock5.current maxindex {}".format(self.blockchain.maxindex()))
+                  break
+                else:
+                  self.blockchain.blocks.pop() #del added block just moment
+                  if self.resolveFork(block):
+                    break
               else:
                 if self.resolveFork(block):
                   break
@@ -385,10 +393,23 @@ class Node(object):
               for b in blocks:
                 Node.logger.info("fork8.addblock {}-{}".format(b.index,b.nonce))
                 if self.blockchain.addBlock(b):
-                  self.txPoolRemove(b)
-                  b.save()
-                  b.removeFromPool()
-                  self.updateUTXO(b)
+                  Node.logger.info("fork9.UTXO")
+                  if b.index==0:
+                    doutxo=self.resetUTXO()
+                  else:
+                    doutxo=self.updateUTXO(b)
+                  if doutxo:
+                    Node.logger.info("fork10.txPoolRemove")
+                    self.txPoolRemove(b)
+                    Node.logger.info("fork11.save")
+                    b.save()
+                    Node.logger.info("fork12.removeFromPool")
+                    b.removeFromPool()
+                    Node.logger.info("fork13.next")
+                  else:
+                    Node.logger.info("utxo error!")
+                    self.blockchain.blocks.pop()
+                    return True
               return True
             else:
               index = block.index - 1
