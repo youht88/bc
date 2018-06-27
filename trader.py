@@ -1,4 +1,4 @@
-from wallete import Wallete
+from wallet import Wallet
 from node import Node
 from transaction import Transaction
 import os
@@ -70,25 +70,25 @@ temp = node.resetUTXO()
 
 log.warning(utils.sha256(utils.obj2json(temp)))
 
-#make pvkey,pbkey,wallete address  
-youhtWallete=Wallete(me)
-jinliWallete=Wallete("jinli")
+#make pvkey,pbkey,wallet address  
+youhtWallet=Wallet(me)
+jinliWallet=Wallet("jinli")
 
 
-coinbaseTX=Transaction.newCoinbase(youhtWallete.address)
+coinbaseTX=Transaction.newCoinbase(youhtWallet.address)
 print(utils.obj2json(coinbaseTX))
 
-#UTXO=node.blockchain.findUTXO(youhtWallete.address)
+#UTXO=node.blockchain.findUTXO(youhtWallet.address)
 
-value=node.utxo.getBalance(youhtWallete.address)
-log.warning("{}'s wallete has {}".format(me,value))  
-value1=node.utxo.getBalance(jinliWallete.address)
-log.warning("jinli's wallete has {}".format(value1))  
+value=node.utxo.getBalance(youhtWallet.address)
+log.warning("{}'s wallet has {}".format(me,value))  
+value1=node.utxo.getBalance(jinliWallet.address)
+log.warning("jinli's wallet has {}".format(value1))  
 
 
 node.tradeTest(me,'jinli',3)
 node.tradeTest(me,'youyc',3)
 
-#coinbase=utils.obj2dict(Transaction.newCoinbase(youhtWallete.address))
+#coinbase=utils.obj2dict(Transaction.newCoinbase(youhtWallet.address))
 #mine
 #node.mine(coinbase)

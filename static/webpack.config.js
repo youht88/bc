@@ -1,5 +1,17 @@
-path = require('path')
+const path = require('path')
+const webpack = require('webpack');
+const HtmlWebpackPlugin=require('html-webpack-plugin');
+console.log(__dirname)
 module.exports={
+  entry: [
+    'react-hot-loader/patch',
+    path.resolve(__dirname, './src/index.js')
+  ],
+  output:{
+      path: path.resolve(__dirname, 'dist'),
+      publicPath:'/',
+      filename  : '[name].js'
+    },
   mode: "development",
   module:{
     rules:[
@@ -17,10 +29,9 @@ module.exports={
        options:{
          presets:['env','react'],
          plugins: [
-                  ['import', { libraryName: 'antd', libraryDirectory: 'es', style: 'css' }]
+                  ['import', { libraryName: 'antd', libraryDirectory: 'es', style: 'css' }],
                 ],
-           
-          // This is a feature of `babel-loader` for webpack (not Babel itself).
+         // This is a feature of `babel-loader` for webpack (not Babel itself).
           // It enables caching results in ./node_modules/.cache/babel-loader/
           // directory for faster rebuilds.
           cacheDirectory: true,
@@ -28,13 +39,30 @@ module.exports={
        },
     ]
   },
+  plugins:[
+    new HtmlWebpackPlugin({
+      title:'webpack HMR test',
+      template:'../templates/react.html'
+    }),
+    new webpack.NamedModulesPlugin(), // 新增
+    new webpack.HotModuleReplacementPlugin(), //新增
+    new webpack.ProvidePlugin({
+        $:"jquery",
+        jQuery:"jquery",
+        "window.jQuery":"jquery",
+        pio:"socket.io-client",
+        _:"underscore"
+        })
+  ],
   devServer:{
     contentBase: path.resolve(__dirname, 'dist'),
+    disableHostCheck:true,
+    publicPath:'/',
     compress:true,
     port:7777,
     host:'0.0.0.0',
-    hot:true,
     inline:true,
+    hot:true,
     overlay:true
   }
 }

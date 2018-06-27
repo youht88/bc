@@ -1,4 +1,4 @@
-from wallete import Wallete
+from wallet import Wallet
 from node import Node
 from block import Block
 from transaction import Transaction
@@ -6,6 +6,7 @@ from chain import UTXO
 from flask import Flask,jsonify,request,render_template,make_response
 from flask_socketio import SocketIO
 from flask_socketio import send,emit
+from flask_cors import CORS
     
 import requests
 import os,shutil
@@ -35,7 +36,7 @@ parser.add_argument("--entryNode","-e",type=str,help="indicate which node to ent
 parser.add_argument("--me",type=str,help="indicate who am I,e.g. ip|host:port .Default to search 'me' file")
 parser.add_argument("--host",type=str,default="0.0.0.0",help="default ip is 0.0.0.0")
 parser.add_argument("--port",type=int,default="5000",help="default port is 5000")
-parser.add_argument("--name",type=str,help="name of wallete")
+parser.add_argument("--name",type=str,help="name of wallet")
 parser.add_argument("--full",action="store_true",help="full sync")
 parser.add_argument("--syncNode",action="store_true",help="if sync overall node")
 parser.add_argument("--debug",action="store_true",help="if debug mode ")
@@ -91,8 +92,8 @@ log = logger.Logger("miner",args.logging)
 log.registHandler("./miner.log")
 logger.logger = log
 
-#make pvkey,pbkey,wallete address  
-myWallete=Wallete(args.name)
+#make pvkey,pbkey,wallet address  
+mywallet=Wallet(args.name)
 log.error(args.me,args.port)
 
 #make node
@@ -102,6 +103,7 @@ node=Node({"host":args.host,
            "me":args.me})
                
 app = Flask(__name__)
+CORS(app)
 socketio = SocketIO(app,async_mode="threading")
 #register me and get all alive ndoe list
 if args.syncNode:
@@ -130,7 +132,7 @@ if len(localChain.blocks)==0:
     else:
       raise Exception("error on import genesisBlock")
   except:
-    t1=Transaction.newCoinbase(myWallete.address)
+    t1=Transaction.newCoinbase(mywallet.address)
     coinbase=utils.obj2dict(t1)
     node.genesisBlock(coinbase)
 
@@ -179,7 +181,7 @@ def minerProcess():
          os.path.join(BROADCASTED_TRANSACTION_DIR, '*.json'))
       if len(txPoolFiles)>=TRANSACTION_TO_BLOCK:
         log.info('the arg is:%s,%s\r' % (len(txPoolFiles),time.time()))
-        t1=Transaction.newCoinbase(myWallete.address)
+        t1=Transaction.newCoinbase(mywallet.address)
         coinbase=utils.obj2dict(t1)
         #mine
         newBlock=node.mine(coinbase)
@@ -292,10 +294,15 @@ def not_found(error):
     return make_response(jsonify({'error': 'Not found this url'}), 404)
 
 #test url
-@app.route('/blockchain/<int:index>/',methods=['GET'])
-def getBlocks(index):
-  blocks = node.blockchain.findRangeBlocks(index,index)
-  return jsonify(utils.obj2dict(blocks))
+@app.route('/blockchain/index/<int:blockIndex>/',methods=['GET'])
+def getBlockByIndex(blockIndex):
+  block = node.blockchain.findRangeBlocks(blockIndex,blockIndex)
+  return jsonify(utils.obj2dict(block))
+
+@app.route('/blockchain/hash/<string:blockHash>/',methods=['GET'])
+def getBlockByHash(blockHash):
+  block = node.blockchain.findBlockByHash(blockHash)
+  return jsonify(utils.obj2dict(block))
   
 @app.route('/blockchain/get/<string:peer>/<int:index>/',methods=['GET'])
 def getRemoteBlocks(peer,index):
@@ -361,7 +368,7 @@ def lastblock():
 
 @app.route('/mine',methods=['GET'])
 def mine():
-  t1=Transaction.newCoinbase(myWallete.address)
+  t1=Transaction.newCoinbase(mywallet.address)
   coinbase=utils.obj2dict(t1)
   #mine
   newBlock=node.mine(coinbase)
@@ -409,40 +416,40 @@ def testHash():
   t2=time.time()
   return  jsonify({"totalMin":(t2-t1)/60,"result":result})
 
-@app.route('/wallete/me',methods=['GET'])
-def getWallete():
-  wallete = Wallete(me)
-  balance = node.blockchain.utxo.getBalance(wallete.address)
-  response = {"address":wallete.address,
-              "pubkey":wallete.pubkey64D,
+@app.route('/wallet/me',methods=['GET'])
+def getwallet():
+  wallet = Wallet(me)
+  balance = node.blockchain.utxo.getBalance(wallet.address)
+  response = {"address":wallet.address,
+              "pubkey":wallet.pubkey64D,
               "balance":balance}
   return jsonify(response)
 
-@app.route('/wallete/<string:address>/',methods=['GET'])
+@app.route('/wallet/<string:address>/',methods=['GET'])
 def getBalance(address):
   if len(address)==64:
     balance = node.blockchain.utxo.getBalance(address)
     return jsonify({"address":address,"blance":balance})
   else:
-    wallete = Wallete(address)
-    balance = node.blockchain.utxo.getBalance(wallete.address)
-    return jsonify({"address":wallete.address,"pubkey":wallete.pubkey64D,"blance":balance})
+    wallet = Wallet(address)
+    balance = node.blockchain.utxo.getBalance(wallet.address)
+    return jsonify({"address":wallet.address,"pubkey":wallet.pubkey64D,"blance":balance})
 
-@app.route('/wallete/create/<string:name>',methods=['GET'])
-def createWallete(name):
+@app.route('/wallet/create/<string:name>',methods=['GET'])
+def createwallet(name):
   if name=='me':
-    wallete = Wallete(me)
+    wallet = Wallet(me)
   else:
-    wallete = Wallete(name)
-  balance = node.blockchain.utxo.getBalance(wallete.address)
-  response = {"address":wallete.address,
-              "pubkey":wallete.pubkey64D,
+    wallet = Wallet(name)
+  balance = node.blockchain.utxo.getBalance(wallet.address)
+  response = {"address":wallet.address,
+              "pubkey":wallet.pubkey64D,
               "balance":balance}
   return jsonify(response)
 
-@app.route('/wallete/get/<string:peer>/<name>',methods=['GET'])
-def syncWallete(peer,name):
-  result=node.httpProcess("http://"+peer+"/wallete/"+name)
+@app.route('/wallet/get/<string:peer>/<name>',methods=['GET'])
+def syncwallet(peer,name):
+  result=node.httpProcess("http://"+peer+"/wallet/"+name)
   if name=='me':
     name=peer
   dict=result["response"].json()
@@ -461,7 +468,7 @@ def syncWallete(peer,name):
         f.write(base64.b64decode(pubkey64D.encode()))
     except Exception as e:
       raise e
-      return "error on wallete/reset/"+name
+      return "error on wallet/reset/"+name
   return jsonify(dict)
 
 @app.route('/trade/<nameFrom>/<nameTo>/<amount>',methods=['GET'])

@@ -6,7 +6,7 @@ import base64
 import json
 
 import time
-from wallete import Wallete
+from wallet import Wallet
               
 import logger
 
@@ -92,8 +92,8 @@ class Transaction(object):
     def newTransaction(inPrvkey,inPubkey,outPubkey,amount,utxo):
       ins=[]
       outs=[]
-      inAddr=Wallete.address(inPubkey)
-      outAddr=Wallete.address(outPubkey)
+      inAddr=Wallet.address(inPubkey)
+      outAddr=Wallet.address(outPubkey)
       todo = utxo.findSpendableOutputs(inAddr,amount)
       #todo={"acc":3,"unspend":{"3453425125":{"index":0,"amount":"3"},        
       #                         "2543543543":{"index":0,"amount":"2"}

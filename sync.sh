@@ -1,0 +1,1 @@
+ls *.py |awk '{print "192.168.31.141:9000/"$1}' >py.txt && wget -i py.txt

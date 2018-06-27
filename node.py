@@ -13,7 +13,7 @@ import utils
 from chain import Chain,UTXO
 from block import Block
 from transaction import Transaction
-from wallete import Wallete
+from wallet import Wallet
 
 import threading
 import time
@@ -423,13 +423,13 @@ class Node(object):
     
   def tradeTest(self,nameFrom,nameTo,amount):
     if nameFrom=='me':
-      wFrom = Wallete(self.me)
+      wFrom = Wallet(self.me)
     else:
-      wFrom = Wallete(nameFrom)
+      wFrom = Wallet(nameFrom)
     if nameTo=='me':
-      wTo = Wallete(self.me)
+      wTo = Wallet(self.me)
     else:
-      wTo = Wallete(nameTo)
+      wTo = Wallet(nameTo)
     if wFrom.key[0]:
       return self.trade(
         wFrom.key[0],wFrom.key[1],wTo.key[1],amount)
@@ -462,7 +462,7 @@ class Node(object):
       {"index":0,
       "prev_hash":"0",
       "data":[coinbase],
-      "timestamp":time.time()}))
+      "timestamp":date.datetime.now().strftime('%s')}))
     newBlock.save()
     
   def mine(self,coinbase):

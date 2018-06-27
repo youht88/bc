@@ -4,56 +4,61 @@ import ReactDOM from 'react-dom';
 import { Layout } from 'antd';
 const { Header, Footer, Sider, Content } = Layout;
 
-import {Button} from 'antd';
+import MyMenu from './components/menu.jsx'
+import Home from './components/home.jsx'
 import StepsSample from './components/steps.jsx'
 import CardSample from './components/card.jsx'
 import Rater from './components/rate.jsx'
+import MyTree from './components/tree.jsx'
+import MyTable from './components/table.jsx'
+import Block from './components/block.jsx'
+
+import {BrowserRouter,Route,Switch,Redirect,Link} from 'react-router-dom';
+
 
 class App extends  React.Component{
+  constructor(props) {
+    super(props);
+    this.state = { value: 3 };
+    this.f1=this.f1.bind(this)
+  }
+  f1(){
+    this.setState({value:5})
+  }
   render() {
-    var elapsed = Math.round(this.props.elapsed  / 100);
-    var seconds = elapsed / 10 + (elapsed % 10 ? '' : '.0' );
     var message =
-      'React1 has been successfully running for ' + seconds + ' seconds.';
-
+      'React Flask Socket.io antd webpack...';
     return (<div>
-        <h1 style={{"color":"white"}}>{message}
-        </h1>
-        </div>
+      <Layout>
+        <Header >
+          <h1 style={{"color":"white"}}>{message}</h1>
+        </Header>
+        <Layout>
+          <Sider style={{"color":"white"}}>
+            <MyMenu/>
+          </Sider>
+          <Content style={{ margin: '24px 16px 0' }}>
+            <Switch>
+              <Route path="/" exact component={Home} />
+              <Route path="/card" component={CardSample} />
+              <Route path="/steps" component={StepsSample} />
+              <Route path="/transaction" component={MyTable} />
+              <Route path="/block/:blockHash" component={Block} />
+              <Redirect to="/" />
+            </Switch>
+          </Content>
+        </Layout>
+        <Footer>
+          <Route path="/card" component={StepsSample} />
+        </Footer>
+      </Layout>
+      </div>
         );
   }
 };
 
-var start = new Date().getTime();
-var i=0
-var t=setInterval(function() {
-  if (i===10) {
-    clearInterval(t)
-  }
-  i++
-  ReactDOM.render(
-    <div>
-      <Layout>
-        <Header>
-          <App elapsed={new Date().getTime() - start} />
-        </Header>
-          <Layout>
-            <Sider>
-              <CardSample/>
-            </Sider>
-            <Content>
-        <div>
-        <Button id="download" type="primary" icon="download">下载</Button>
-        <Button id="commit" type="primary" icon="swap">提交</Button>
-        </div>
-              <Rater/>
-            </Content>
-          </Layout>
-        <Footer>
-          <StepsSample/>
-        </Footer>
-      </Layout>
-    </div>,
-    document.getElementById('container')
-  );
-}, 100);
+ReactDOM.render((
+   <BrowserRouter>
+     <App/>
+   </BrowserRouter>
+   ), document.getElementById("container"))
