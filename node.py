@@ -267,6 +267,7 @@ class Node(object):
   def resetUTXO(self):
     self.blockchain.utxo.reset(self.blockchain)
     #定义tradeUTXO,避免与blockchain的UTXO互相影响，更新trade时会更新tradeUTXO，以保证多次交易。更新block时使用blockchain下的UTXO
+    Node.logger.critical("resetUTXO!!!")
     self.tradeUTXO = UTXO()
     self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
     self.isolateUTXO = UTXO()
@@ -453,8 +454,7 @@ class Node(object):
           Node.logger.error("%s error is %s"%(peer,e))  
       Node.logger.info("transaction广播完成")
     else:
-      node.logger.critical("double spend!!")
-      self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet)
+      Node.logger.critical("double spend!!,Maybe not enough money.")
     return newTXdict
 
   def genesisBlock(self,coinbase):

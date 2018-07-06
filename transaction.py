@@ -4,6 +4,7 @@ from config import *
 import utils
 import base64
 import json
+import copy
 
 import time
 from wallet import Wallet
@@ -51,7 +52,28 @@ class TXout(object):
   
   def canbeUnlockWith(self,script):
     return self.outAddr == script
-    
+class Contract(object):
+  def __init__(self,sandbox,code):
+    this.status=0
+    this.compileError=None
+    this.executeError=None
+    this.code=code
+    this.sandbox=sandbox
+    this._compile()
+  def _compile():
+    try:
+      this.codeCompiled=compile(this.code,'','exec')
+    except Exception as e:
+      this.compileError=e
+      this.codeCompiled=''
+  def execute():
+    if this.compileError :
+      try:
+        exec(this.codeCompiled,{},this.sandbox)
+      except Exception as e:
+        this.error=e
+  def sandbox():
+    return this.sandbox
 class Transaction(object):
     def __init__(self,**args):
       Transaction.logger = logger.logger
@@ -85,7 +107,7 @@ class Transaction(object):
     @staticmethod
     def newCoinbase(outAddr):
       ins=[TXin({"prevHash":"","index":-1,"inAddr":"","pubkey":None,"sign":None})]
-      outs=[TXout({"amount":float(REWARD),"outAddr":outAddr})]
+      outs=[TXout({"amount":round(REWARD,4),"outAddr":outAddr})]
       return Transaction(ins=ins,outs=outs)
    
     @staticmethod
@@ -100,7 +122,7 @@ class Transaction(object):
       #                        }
       #     }
       #print("newTransaction.todo","\n",todo)
-      amount = float(amount)
+      amount = round(amount,4)
       if todo["acc"] < amount:
         Transaction.logger.warning("%s not have enough money."%inAddr)
         return None
@@ -117,10 +139,12 @@ class Transaction(object):
                          "sign":sign}))
       outs.append(TXout({"amount":amount,"outAddr":outAddr}))
       if todo["acc"] > amount:
-        outs.append(TXout({"amount":todo["acc"]-amount,"outAddr":inAddr}))
+        outs.append(TXout({"amount":round(todo["acc"]-amount,4),"outAddr":inAddr}))
       TX = Transaction(ins=ins,outs=outs)
-      if not utxo.updateWithTX(TX):
+      utxoSet = copy.deepcopy(utxo.utxoSet)
+      if not utxo.updateWithTX(TX,utxoSet):
         return False
+      utxo.utxoSet = utxoSet
       return TX
   
     def isCoinbase(self):

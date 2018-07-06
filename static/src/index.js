@@ -7,11 +7,13 @@ const { Header, Footer, Sider, Content } = Layout;
 import MyMenu from './components/menu.jsx'
 import Home from './components/home.jsx'
 import StepsSample from './components/steps.jsx'
-import CardSample from './components/card.jsx'
+import Blockchain from './components/blockchain.jsx'
 import Rater from './components/rate.jsx'
 import MyTree from './components/tree.jsx'
-import MyTable from './components/table.jsx'
+import TxForm from './components/txForm.jsx'
 import Block from './components/block.jsx'
+import UTXO from './components/utxo.jsx'
+import Wallet from './components/wallet.jsx'
 
 import {BrowserRouter,Route,Switch,Redirect,Link} from 'react-router-dom';
 
@@ -40,16 +42,20 @@ class App extends  React.Component{
           <Content style={{ margin: '24px 16px 0' }}>
             <Switch>
               <Route path="/" exact component={Home} />
-              <Route path="/card" component={CardSample} />
-              <Route path="/steps" component={StepsSample} />
-              <Route path="/transaction" component={MyTable} />
+              <Route path="/blockchain" component={Blockchain} />
+              <Route path="/wallet/:walletAddress" component={Wallet} />
+              <Route path="/wallet" component={Wallet} />
+              <Route path="/transaction/:txHash" component={TxForm} />
+              <Route path="/transaction" component={TxForm} />
               <Route path="/block/:blockHash" component={Block} />
+              <Route path="/block" component={Block} />
+              <Route path="/utxo" component={UTXO} />
               <Redirect to="/" />
             </Switch>
           </Content>
         </Layout>
         <Footer>
-          <Route path="/card" component={StepsSample} />
+          <Route path="/blockchain" component={StepsSample} />
         </Footer>
       </Layout>
       </div>

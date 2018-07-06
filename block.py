@@ -62,6 +62,7 @@ class Block(object):
   def saveToPool(self):
     index = self.index
     nonce = self.nonce
+    Block.logger.warn("save block {}-{} to pool".format(index,nonce))
     filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
     with open(filename, 'w') as block_file:
       utils.obj2jsonFile(self, block_file,sort_keys=True)

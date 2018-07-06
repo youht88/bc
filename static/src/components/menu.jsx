@@ -32,28 +32,30 @@ export default class MyMenu extends React.Component {
         >
           <Menu.Item key="1">
             <Icon type="pie-chart" />
-            <span><Link to="/home">Home</Link></span>
+            <span><Link to="/home">主页</Link></span>
           </Menu.Item>
           <Menu.Item key="2">
             <Icon type="desktop" />
-            <span><Link to="/steps">Wallet</Link></span>
+            <span><Link to="/wallet">钱包</Link></span>
           </Menu.Item>
           <Menu.Item key="3">
             <Icon type="inbox" />
-            <span><Link to ="/card">Blockchain</Link></span>
+            <span><Link to ="/blockchain">区块链</Link></span>
           </Menu.Item>
-          <SubMenu key="sub1" title={<span><Icon type="mail" /><span>Node</span></span>}>
-            <Menu.Item key="5">List</Menu.Item>
-            <Menu.Item key="6">Register</Menu.Item>
+          <SubMenu key="sub1" title={<span><Icon type="mail" /><span>节点</span></span>}>
+            <Menu.Item key="5">列表</Menu.Item>
+            <Menu.Item key="6">注册</Menu.Item>
             <Menu.Item key="7">Gossip</Menu.Item>
             <Menu.Item key="8">PBFT</Menu.Item>
           </SubMenu>
-          <SubMenu key="sub2" title={<span><Icon type="appstore" /><span>Blockchain</span></span>}>
+          <SubMenu key="sub2" title={<span><Icon type="appstore" /><span>细节</span></span>}>
             <Menu.Item key="9">
-              <Link to="/block">Block</Link>
+              <Link to="/block">区块</Link>
             </Menu.Item>
-            <SubMenu key="sub3" title="Transaction">
-              <Menu.Item key="11">UTXO</Menu.Item>
+            <SubMenu key="sub3" title="交易">
+              <Menu.Item key="11">
+                <Link to = "/utxo">UTXO</Link>
+              </Menu.Item>
               <Menu.Item key="12">
                 <Link to = "/transaction">Transaction</Link>
               </Menu.Item>

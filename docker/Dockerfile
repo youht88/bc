@@ -34,5 +34,6 @@ RUN echo {presets:[\'env\',\'react\']} > .babelrc
 #patch
 RUN pip3 install flask-cors
 RUN npm install flux --save
+RUN npm install bizcharts --save
 
 WORKDIR /bc

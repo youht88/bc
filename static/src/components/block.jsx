@@ -6,6 +6,7 @@ const { Meta } = Card;
 import {Link} from 'react-router-dom'
 import { Form, Input, Button } from 'antd';
 const FormItem = Form.Item;
+import TxForm from './txForm.jsx';
 
 class FormBlockHash extends React.Component {
   constructor() {
@@ -54,99 +55,6 @@ class FormBlockHash extends React.Component {
   }
 }
 const WrappedForm = Form.create()(FormBlockHash)
-
-import {Table,Divider} from 'antd'
-import { Collapse } from 'antd';
-const Panel = Collapse.Panel;
-
-class TxForm extends React.Component{
-  constructor(){
-    super()
-    const insColumns = [{
-      title: 'prevHash',
-      dataIndex: 'prevHash',
-      key: 'prevHash',
-      render: text => <a href="javascript:;">{text.substr(0,6)+'...'}</a>,
-    },{
-      title: 'index',
-      dataIndex: 'index',
-      key: 'index',
-    }];
-    const outsColumns = [{
-      title: 'outAddr',
-      dataIndex: 'outAddr',
-      key: 'outAddr',
-      render: text => <a href="javascript:;">{text.substr(0,6)+'...'}</a>,
-    }, {
-      title: 'amount',
-      dataIndex: 'amount',
-      key: 'amount',
-    }];
-    
-    this.state = {insColumns,outsColumns}
-  }
-  componentDidMount(){
-    const data=this.props.data
-    if (data){
-      let insData=[]
-      let outsData=[]
-      for(var i=0;i<data.insLen;i++){
-       insData.push({
-             "prevHash":data.ins[i].prevHash,
-             "index":data.ins[i].index,
-             "key":i
-       })
-      }
-      for(var i=0;i<data.outsLen;i++){
-       outsData.push({
-             "outAddr":data.outs[i].outAddr,
-             "amount" :data.outs[i].amount,
-             "key":i
-       })
-      }
-      this.setState({insData:insData})
-      this.setState({outsData:outsData})
-    }
-    else {
-      message.info("no data")
-    }
-  }
-
-  render(){
-    const {insData,outsData,insColumns,outsColumns} = this.state
-    const {hash,timestamp} = this.props.data
-    if (insData){
-      return(
-       <Collapse defaultActiveKey={['1']} >
-        <Panel header={`TX HASH:${hash}`} key={this.props.idx}>
-          <Row type="flex" justify="center" align="top" >
-            <Col span={10}>
-              <Table dataSource={insData} columns={insColumns} pagination={false}/>
-            </Col>
-            <Col span={4}>
-              <Row type="flex" justify="center" align="middle">
-              <span>
-                <Icon type="double-right" style={{ fontSize: 20, color: '#080' }} />
-                <Icon type="double-right" style={{ fontSize: 20, color: '#080' }} />
-                <Icon type="double-right" style={{ fontSize: 20, color: '#080' }} />
-                <Icon type="double-right" style={{ fontSize: 20, color: '#080' }} />
-                <Icon type="double-right" style={{ fontSize: 20, color: '#080' }} />
-              </span>
-              </Row>
-            </Col>  
-            <Col span={10}>
-              <Table dataSource={outsData} columns={outsColumns} pagination={false}/>
-            </Col>
-          </Row>
-        </Panel>
-      </Collapse>
-      )
-      }
-    else {
-      return null
-    }
-  }
-}
 
 export default class Block extends React.Component{
   constructor(props) {

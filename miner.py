@@ -240,7 +240,7 @@ def transacted():
   log.info("recieve transaction {}".format(TX.hash))
   if TX.isValid():
     utxoSet = copy.deepcopy(node.isolateUTXO.utxoSet)
-    log.critical("1",utxoSet)
+    #log.critical("1",utxoSet)
     if node.isolateUTXO.updateWithTX(TX,utxoSet):
       node.isolateUTXO.utxoSet = utxoSet
       #save to file to transaction pool
@@ -270,6 +270,15 @@ def transacted():
     utils.warning("transaction is not valid,hash is:",TX.hash)
     return jsonify(confirmed=False)
 
+@app.route('/getStatus',methods=['GET'])
+def getStatus():
+  status={
+    "node.isMining":node.isMining,
+    "node.isBlockSyncing":node.isBlockSyncing,
+    "blockchain.maxindex":node.blockchain.maxindex(),
+    "blockchain.maxindex.nonce":node.blockchain.blocks[node.blockchain.maxindex()].nonce    
+  }
+  return jsonify(status),200
 @app.route('/blockchain', methods=['GET'])
 def blockchainList():
   blocks = node.blockchain.blocks
@@ -306,7 +315,7 @@ def getBlockByHash(blockHash):
   
 @app.route('/blockchain/get/<string:peer>/<int:index>/',methods=['GET'])
 def getRemoteBlocks(peer,index):
-  result=node.httpProcess("http://"+peer+"/blockchain/"+str(index))
+  result=node.httpProcess("http://"+peer+"/blockchain/index/"+str(index))
   blocksDict=result["response"].json()
   if blocksDict:
     block = Block(blocksDict[0])
@@ -319,9 +328,19 @@ def getRemoteBlocks(peer,index):
     return jsonify(utils.obj2dict(block))
   else:
     return "no index {} from peer {}".format(index,peer) 
-@app.route('/utxo/<string:address>/',methods=['GET'])
+@app.route('/utxo/main/<string:address>/',methods=['GET'])
 def findUTXO(address):
   utxo = node.blockchain.utxo.findUTXO(address)
+  return jsonify(utils.obj2dict(utxo))
+
+@app.route('/utxo/trade/<string:address>/',methods=['GET'])
+def findTradeUTXO(address):
+  utxo = node.tradeUTXO.findUTXO(address)
+  return jsonify(utils.obj2dict(utxo))
+
+@app.route('/utxo/isolate/<string:address>/',methods=['GET'])
+def findIsolateUTXO(address):
+  utxo = node.isolateUTXO.findUTXO(address)
   return jsonify(utils.obj2dict(utxo))
   
 @app.route('/transaction/<string:hash>/',methods=['GET'])
@@ -336,13 +355,13 @@ def utxoReindex():
 
 @app.route('/utxo/get/',methods=['GET'])
 def utxoGet():
-  utxoSet = node.blockchain.utxo
+  utxoSet = node.blockchain.utxo.utxoSet
   utxoSummary = node.blockchain.utxo.getSummary()
   return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet,sort_keys=False)})
 
 @app.route('/utxo/get/isolate',methods=['GET'])
 def utxoGetIsolate():
-  utxoSet = node.isolateUTXO
+  utxoSet = node.isolateUTXO.utxoSet
   utxoSummary = node.isolateUTXO.getSummary()
   return jsonify({"summary":utxoSummary,"utxoSet":utils.obj2dict(utxoSet,sort_keys=False)})
 

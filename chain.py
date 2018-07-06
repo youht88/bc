@@ -98,7 +98,7 @@ class UTXO(object):
     for TX in data:
       self.updateWithTXAfterRemove(prevTXs,TX)
   def updateWithTXAfterRemove(self,prevTXs,TX):
-    utxoSet=self.utxoSet
+    utxoSet=copy.deepcopy(self.utxoSet)
     #outs
     outputs=utxoSet[TX.hash]
     for idx,txout in enumerate(TX.outs):
@@ -288,6 +288,7 @@ class Chain(object):
       os.remove(filename)
     except:
       pass
+    Chain.logger.warn("remove block {}-{} from chain".format(block.index,block.nonce))
     self.removeBlock(block)
     block.saveToPool()
   def getSPV(self):
