@@ -10,6 +10,7 @@ import time
 from wallet import Wallet
               
 import logger
+import globalVar as _global
 
 class TXin(object):
   def __init__(self,dict):
@@ -36,6 +37,7 @@ class TXin(object):
         #D  mean decode bin to str
         self.signD=sign.decode()
   def canUnlockWith(self,script):
+    #暂停使用，移入canBeUnlockWith函数
     return True
     if not self.pubkey64D == script:
       TXin.logger.critical("canUnlockWith error:self.pubkey64D != script")
@@ -47,33 +49,55 @@ class TXin(object):
 
 class TXout(object):
   def __init__(self,dict):
+    TXout.logger = logger.logger
     self.amount=dict["amount"]   if "amount"  in dict else None
     self.outAddr=dict["outAddr"] if "outAddr" in dict else ""
-  
-  def canbeUnlockWith(self,script):
-    return self.outAddr == script
+    self.script=dict["script"] if "script" in dict else ""
+        
+  def canbeUnlockWith(self,address):
+    if self.outAddr == address :
+      if self.script=="":
+        return True
+      else:
+        #run the script 
+        try:
+          g={}
+          l={"amount":self.amount}
+          exec(self.script,g,l)
+          result=l["fun"](l)
+          if result==True:
+            return True
+          else:
+            return False  
+        except Exception as e:
+          TXout.logger.critical("canbeUnlockWith",e)
+          return False
+    return False    
 class Contract(object):
-  def __init__(self,sandbox,code):
+  def __init__(self,script,sandbox={}):
     this.status=0
     this.compileError=None
     this.executeError=None
-    this.code=code
+    this.script=script
     this.sandbox=sandbox
-    this._compile()
   def _compile():
     try:
-      this.codeCompiled=compile(this.code,'','exec')
+      logger.logger.critical(this.script)
+      this.scriptCompiled=compile(this.script,'','exec')
     except Exception as e:
       this.compileError=e
-      this.codeCompiled=''
+      this.scriptCompiled=''
   def execute():
-    if this.compileError :
+    if not this.compileError :
       try:
-        exec(this.codeCompiled,{},this.sandbox)
+        exec(this.scriptCompiled,{},this.sandbox)
+        return True
       except Exception as e:
         this.error=e
+        return False
   def sandbox():
     return this.sandbox
+    
 class Transaction(object):
     def __init__(self,**args):
       Transaction.logger = logger.logger
@@ -90,8 +114,7 @@ class Transaction(object):
       else:
         self.hash=utils.sha256([utils.obj2json(self.ins),
                                 utils.obj2json(self.outs),
-                                self.timestamp])
-      
+                                self.timestamp])     
     @staticmethod
     def parseTransaction(data):
       ins=[]
@@ -107,11 +130,23 @@ class Transaction(object):
     @staticmethod
     def newCoinbase(outAddr):
       ins=[TXin({"prevHash":"","index":-1,"inAddr":"","pubkey":None,"sign":None})]
-      outs=[TXout({"amount":round(REWARD,4),"outAddr":outAddr})]
+      outs=[TXout({"amount":round(REWARD,4),"outAddr":outAddr,"script":""})]
       return Transaction(ins=ins,outs=outs)
    
     @staticmethod
-    def newTransaction(inPrvkey,inPubkey,outPubkey,amount,utxo):
+    def newTransaction(inPrvkey,inPubkey,outPubkey,amount,utxo,script=""):
+      if script:
+        logger.logger.critical("check script")
+        try:
+          bin=compile(script,'','exec')
+        except Exception as e:
+          return {"errCode":2,"errText":repr(e)}
+        try:
+          l={"a":"x"}
+          exec(bin,{},l)
+          l["fun"](l)
+        except Exception as e:
+          return {"errCode":3,"errText":repr(e)}
       ins=[]
       outs=[]
       inAddr=Wallet.address(inPubkey)
@@ -125,7 +160,7 @@ class Transaction(object):
       amount = round(amount,4)
       if todo["acc"] < amount:
         Transaction.logger.warning("%s not have enough money."%inAddr)
-        return None
+        return {"errCode":1,"errText":"not enough money."}
       for hash in todo["unspend"]:
         output = todo["unspend"][hash]
         prevHash = hash
@@ -137,13 +172,13 @@ class Transaction(object):
                          "inAddr":inAddr,
                          "pubkey":inPubkey,
                          "sign":sign}))
-      outs.append(TXout({"amount":amount,"outAddr":outAddr}))
+      outs.append(TXout({"amount":round(amount,4),"outAddr":outAddr,"script":script}))
       if todo["acc"] > amount:
-        outs.append(TXout({"amount":round(todo["acc"]-amount,4),"outAddr":inAddr}))
+        outs.append(TXout({"amount":round(todo["acc"]-amount,4),"outAddr":inAddr,"script":""}))
       TX = Transaction(ins=ins,outs=outs)
       utxoSet = copy.deepcopy(utxo.utxoSet)
       if not utxo.updateWithTX(TX,utxoSet):
-        return False
+        return {"errCode":1,"errText":"double spend!!,Maybe not enough money."}
       utxo.utxoSet = utxoSet
       return TX
   
@@ -158,21 +193,30 @@ class Transaction(object):
       if self.isCoinbase():
         return self.insLen==1 and self.outsLen==1 and self.outs[0].amount<=REWARD        
       Transaction.logger.debug("transaction","begin verify:",self.hash)
-      for oin in self.ins:
-        outPubkey = base64.b64decode(oin.pubkey64D.encode())
+      outAddr=None
+      #blockchain = _global.getValue("blockchain")
+      for vin in self.ins:
+        outPubkey = base64.b64decode(vin.pubkey64D.encode())
+        #if blockchain:
+        #  prevVout = blockchain.findOutput(vin.prevHash,vin.index)
+        #  if prevVout:
+        #    outAddr = prevVout.outAddr
+        outAddr = vin.inAddr
+        #Transaction.logger.error(amountIn,outAddr,vin.inAddr)
         #step1:verify it is mine 
-        if not utils.sha256(outPubkey)==oin.inAddr:
-          Transaction.logger.error("transaction",oin.prevHash,oin.index,"step1: inAddr can pass pubkey? false")
+        if not (outAddr == vin.inAddr and utils.sha256(outPubkey)== vin.inAddr):
+          Transaction.logger.warn("transaction",outAddr,vin.inAddr)
+          Transaction.logger.error("transaction",vin.prevHash,vin.index,"step1: inAddr can pass pubkey? false")
           return False
-        Transaction.logger.debug("transaction",oin.prevHash,oin.index,"step1: inAddr can pass pubkey? ok")
+        Transaction.logger.debug("transaction",vin.prevHash,vin.index,"step1: inAddr can pass pubkey? ok")
         #step2:verify not to be changed!!!!
         isVerify=utils.verify(
-          oin.prevHash+str(oin.index)+oin.inAddr,
-          oin.signD.encode(),
+          vin.prevHash+str(vin.index)+vin.inAddr,
+          vin.signD.encode(),
           outPubkey
          )
         if isVerify==False:
-          Transaction.logger.error("transaction",oin.prevHash,oin.index,"step2: can pass sign verify? false")
+          Transaction.logger.error("transaction",vin.prevHash,vin.index,"step2: can pass sign verify? false")
           return False
-        Transaction.logger.debug("transaction",oin.prevHash,oin.index,"step2: can pass sign verify? ok")
+        Transaction.logger.debug("transaction",vin.prevHash,vin.index,"step2: can pass sign verify? ok")
       return True

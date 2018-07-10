@@ -14,8 +14,7 @@ class FormBlockHash extends React.Component {
     this.handleSubmit = this.handleSubmit.bind(this)
   }
   componentDidMount() {
-    // To disabled submit button at the beginning.
-    //this.props.form.validateFields();
+     
   }
   handleSubmit(e){
     e.preventDefault();
@@ -35,11 +34,12 @@ class FormBlockHash extends React.Component {
     const { getFieldDecorator} = this.props.form;
     return (
       <div>
-        <Form layout="inline">
+        <Form id="form" layout="inline">
           <FormItem
             label="区块hash"
           >
           {getFieldDecorator('blockHash', {
+            initialValue:this.props.blockHash,
             rules: [
               {required: true, message: '请输入blockHash' }],
           })(
@@ -95,6 +95,11 @@ export default class Block extends React.Component{
   onSubmit(blockHash){
     this.getData(blockHash)
   }
+  getBlock(e){
+    const blockHash = e.target.text
+    this.setState({blockHash})
+    this.getData(blockHash)
+  }
   blockHader(){
     const {block} = this.state
     if (block){
@@ -106,13 +111,13 @@ export default class Block extends React.Component{
           style={{backgroundColor:'#eee'}}
           >
           <p><strong>prevHash:</strong>
-           <div>{block.prev_hash}</div></p>
+           <div><a onClick={this.getBlock.bind(this)}>{block.prev_hash}</a></div></p>
           <p><strong>diffcult:</strong>{block.diffcult}</p>
           <p><strong>timestamp:</strong>{moment(block.timestamp,'X').fromNow()}</p>
           <p><strong>txCount:</strong>{block.data.length}</p>
           <p><strong>merkleRoot:</strong>{block.merkleRoot}</p>
           <Meta
-            avatar={<Avatar style={{backgroundColor: '#87d068'}}>
+            avatar={<Avatar style={{backgroundColor: '#'+block.data[0].outs[0].outAddr.substr(0,6)}}>
               {block.data[0].outs[0].outAddr.substr(0,4)+'...'}
               </Avatar>}
           />
@@ -138,9 +143,10 @@ export default class Block extends React.Component{
     }
   }
   render(){
+    const {blockHash} = this.state
     return(
      <div>
-      <WrappedForm onSubmit={this.onSubmit.bind(this)}/>
+      <WrappedForm blockHash={blockHash}onSubmit={this.onSubmit.bind(this)}/>
       <br/>
       {this.blockHader()}
       <br/>

@@ -14,6 +14,7 @@ import TxForm from './components/txForm.jsx'
 import Block from './components/block.jsx'
 import UTXO from './components/utxo.jsx'
 import Wallet from './components/wallet.jsx'
+import Node from './components/node.jsx'
 
 import {BrowserRouter,Route,Switch,Redirect,Link} from 'react-router-dom';
 
@@ -50,6 +51,7 @@ class App extends  React.Component{
               <Route path="/block/:blockHash" component={Block} />
               <Route path="/block" component={Block} />
               <Route path="/utxo" component={UTXO} />
+              <Route path="/node" component={Node} />
               <Redirect to="/" />
             </Switch>
           </Content>

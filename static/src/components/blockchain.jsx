@@ -18,6 +18,8 @@ class FormRange extends React.Component {
     // To disabled submit button at the beginning.
     //this.props.form.validateFields();
   }
+  componentWillReceiveProps(nextProps){
+  }
   handleSubmit(e){
     e.preventDefault();
     this.props.form.validateFields((err,values)=>{
@@ -31,10 +33,10 @@ class FormRange extends React.Component {
     });
         
   }
-
+  
   render() {
     const { getFieldDecorator} = this.props.form;
-
+    const {from,to} = this.props
     return (
       <div>
         <Form layout="inline">
@@ -42,7 +44,7 @@ class FormRange extends React.Component {
             label="from"
           >
           {getFieldDecorator('from', {
-            initialValue:0,
+            initialValue:from,
             rules: [
               {required: true, message: 'Please input from number! eg.0' }],
           })(
@@ -54,7 +56,7 @@ class FormRange extends React.Component {
             label="to"
           >
             {getFieldDecorator('to', {
-              initialValue:0,
+              initialValue:to,
               rules: [
                {required: true, message: 'Please input to number! eg.1' }],
             })(
@@ -71,7 +73,7 @@ class FormRange extends React.Component {
 }
 const WrappedFormRange = Form.create()(FormRange)
 
-export default class CardSample extends React.Component{
+export default class Blockchain extends React.Component{
   constructor(props) {
     super(props);
     this.state={
@@ -81,25 +83,41 @@ export default class CardSample extends React.Component{
     this.onSubmit = this.onSubmit.bind(this)
     this.getData = this.getData.bind(this)
   }
+  componentWillMount(){
+    this.handleAjax('blockchain/maxindex',
+      (value)=>{
+        to=value
+        from = (to-9>0)? to-9 : 0
+        this.setState({from,to})
+        this.getData(from,to)
+      }
+    )
+  }
   componentDidMount(){
     this.getData()
   }
   componentWillReceiveProps(props){
   }
-  getData(from=0,to=0){
+  handleAjax(path,cb){
     const port = location.port=='7777' ? 5000 : location.port
     const url = document.domain + ':' + port
-    message.warn(`http://${url}/blockchain/${from}/${to}`)
     $.ajax({
       type: 'GET',    // 请求方式
-      url: `http://${url}/blockchain/${from}/${to}`,
+      url: `http://${url}/${path}`,
       success: (res, status, jqXHR)=> {
-        this.setState({blockchain:res})
+        cb(res)
       },
       error: (res,status,error)=>{
-        // 控制台查看响应文本，排查错误
-        message.error('请输入正确的地址');
+        notification.error(
+          {message:"出现错误",
+           description:`http://${this.props.url}/${path}错误,请输入正确的地址`
+          });
       }
+    })
+  }
+  getData(from=0,to=0){
+    this.handleAjax(`blockchain/${from}/${to}`,(res)=>{
+        this.setState({blockchain:res})
     })
   }
   onSubmit(range){
@@ -123,9 +141,9 @@ export default class CardSample extends React.Component{
           <p><strong>txCount:</strong>{block.data.length}</p>
           <p><strong>merkleRoot:</strong>{block.merkleRoot.substr(0,6)}...</p>
           <Meta
-            avatar={<Avatar style={{backgroundColor: '#'+Math.floor(Math.random()*0xffffff).toString(16)}}>
+            avatar={<Avatar style={{backgroundColor: '#'+block.data[0].outs[0].outAddr.substr(0,6)}}>
               <Link to={`/wallet/${block.data[0].outs[0].outAddr}`}>
-              {block.data[0].outs[0].outAddr.substr(0,6)}...
+              {block.data[0].outs[0].outAddr.substr(0,4)}...
               </Link>
               </Avatar>}
           />
@@ -135,10 +153,13 @@ export default class CardSample extends React.Component{
     )
   }
 
+//backgroundColor: '#'+Math.floor(Math.random()*0xffffff).toString(16)
+  
   render(){
+    const {from,to}=this.state
     return(
      <div>
-      <WrappedFormRange onSubmit={this.onSubmit.bind(this)}/>
+      <WrappedFormRange from={from} to={to} onSubmit={this.onSubmit.bind(this)}/>
       <br/>
       <Row type="flex" justify-content="space-between" align="top">
         {this.handleCard()}

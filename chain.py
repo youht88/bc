@@ -8,13 +8,17 @@ import copy
 from config import *
 
 import logger
+import globalVar as _global
 
 class UTXO(object):
-  def __init__(self):
+  def __init__(self,name):
     UTXO.logger = logger.logger
-    # {abc123:[{"index":0,"txout":TXout1},{"index":1,"txout":TXout2}],
-    #  xyz456:[{"index":0,"txout":TXout3}]}
+    # {3a75be...:[{"index":0,"txout":TXout1},{"index":1,"txout":TXout2}],
+    #  m09qf3...:[{"index":0,"txout":TXout3}]}
     self.utxoSet={}
+    self.name = name
+    #_global.setValue("utxo.{}".format(name),self)
+    #UTXO.logger.critical("utxo.{}".format(name),len(_global.getValue("utxo.{}".format(name)).utxoSet.keys()))
   def reset(self,blockchain):
     #print(address,"\n")
     #print(utils.obj2json(self,indent=2))
@@ -37,7 +41,8 @@ class UTXO(object):
             unspendOutputs.append({
                       "index":idx,
                       "txout":TXout({"amount":txout.amount,
-                      "outAddr":txout.outAddr})
+                                     "outAddr":txout.outAddr,
+                                     "script":txout.script})
                       })
         if not TX.isCoinbase():
           for idx,txin in enumerate(TX.ins):
@@ -87,7 +92,8 @@ class UTXO(object):
       unspendOutputs.append({
                     "index":idx,
                     "txout":TXout({"amount":txout.amount,
-                                   "outAddr":txout.outAddr})
+                                   "outAddr":txout.outAddr,
+                                   "script":txout.script})
                                  })
     if not unspendOutputs==[]:
       utxoSet[TX.hash]=unspendOutputs
@@ -123,7 +129,8 @@ class UTXO(object):
             "index":txin.index,
             "txout":TXout({
                 "amount" : prevTX.outs[txin.index].amount,
-                "outAddr": prevTX.outs[txin.index].outAddr})
+                "outAddr": prevTX.outs[txin.index].outAddr,
+                "script" : prevTx.outs[txin.index].script})
                         })
         utxoSet[txin.prevHash] = outs
     self.utxoSet = utxoSet
@@ -185,12 +192,13 @@ class UTXO(object):
       if acc >= amount :
         break
     return {"acc":acc,"unspend":unspend}
-
+      
 class Chain(object):
   def __init__(self, blocks):
     self.blocks = blocks
-    self.utxo = UTXO()
+    self.utxo = UTXO('main')
     Chain.logger = logger.logger
+    _global.setValue("blockchain",self)
   def isValid(self):
     for index, cur_block in enumerate(self.blocks[1:]):
       prev_block = self.blocks[index]
@@ -210,8 +218,27 @@ class Chain(object):
     for b in self.blocks:
       b.save()
     return True
-
+  
+  def findOutput(self,txHash,index):
+    block=self.lastblock()
+    bindex=block.index
+    while bindex >= 0:
+      TXs = block.data
+      for tx in TXs:
+        if tx.hash == txHash:
+          try:
+            vout = tx.outs[index]
+            return vout
+          except:
+            Chain.logger.error("!!",txHash,index,tx.hash)
+            return None
+      bindex = bindex -1
+      block = self.findBlockByIndex(bindex)   
+    return None   
+  
   def findBlockByIndex(self, index):
+    if index<=0:
+      return None
     if len(self) >= index + 1:
       return self.blocks[index]
     else:

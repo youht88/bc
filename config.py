@@ -13,7 +13,7 @@ ENTRYNODE_FILE='entrynode'
 NUM_ZEROS = 2
 TRANSACTION_TO_BLOCK=3
 NUM_FORK=6
-REWARD=2
+REWARD=2.0
 
 BLOCK_VAR_CONVERSIONS = {'index': int, 'nonce': int, 'hash': str, 'prev_hash': str, 'timestamp': int,
     'diffcult': int}

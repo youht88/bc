@@ -21,6 +21,7 @@ import random
 import copy
 
 import traceback
+import globalVar as _global
 
 class Node(object):
   def __init__(self,dict):
@@ -268,9 +269,9 @@ class Node(object):
     self.blockchain.utxo.reset(self.blockchain)
     #定义tradeUTXO,避免与blockchain的UTXO互相影响，更新trade时会更新tradeUTXO，以保证多次交易。更新block时使用blockchain下的UTXO
     Node.logger.critical("resetUTXO!!!")
-    self.tradeUTXO = UTXO()
+    self.tradeUTXO = UTXO("trade")
     self.tradeUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
-    self.isolateUTXO = UTXO()
+    self.isolateUTXO = UTXO("isolate")
     self.isolateUTXO.utxoSet = copy.deepcopy(self.blockchain.utxo.utxoSet) 
     return self.blockchain.utxo.utxoSet
   
@@ -377,7 +378,10 @@ class Node(object):
             Node.logger.info("fork2.forkblock({}-{}) can link poolblock({}-{})?".format(fork.index,fork.nonce,block.index,block.nonce))
             if fork.prev_hash != block.hash:
               continue
-            Node.logger.info("fork3.poolblock({}-{}) can link blockchain({}-{})? or isGenesisblock? {}".format(block.index,block.nonce,self.blockchain.findBlockByIndex(index - 1).index,self.blockchain.findBlockByIndex(index - 1).nonce,index==0))
+            if index>0:
+              Node.logger.info("fork3.poolblock({}-{}) can link blockchain({}-{})?".format(block.index,block.nonce,self.blockchain.findBlockByIndex(index - 1).index,self.blockchain.findBlockByIndex(index - 1).nonce))
+            else:
+              Node.logger.info("fork3.poolblock({}-{}) isGenesisblock?".format(block.index,block.nonce,index))
             blocks.append(block) 
             if index==0 or block.prev_hash == self.blockchain.findBlockByIndex(index - 1).hash:
               #done,replace blocks in blockchain,move correspondent into blockPool
@@ -422,7 +426,7 @@ class Node(object):
         break
     return False
     
-  def tradeTest(self,nameFrom,nameTo,amount):
+  def tradeTest(self,nameFrom,nameTo,amount,script=""):
     if nameFrom=='me':
       wFrom = Wallet(self.me)
     else:
@@ -433,14 +437,18 @@ class Node(object):
       wTo = Wallet(nameTo)
     if wFrom.key[0]:
       return self.trade(
-        wFrom.key[0],wFrom.key[1],wTo.key[1],amount)
+        wFrom.key[0],wFrom.key[1],wTo.key[1],amount,script)
     else:
       return "{} have not private key on this node".format(nameFrom)
-  def trade(self,inPrvkey,inPubkey,outPubkey,amount):
+  def trade(self,inPrvkey,inPubkey,outPubkey,amount,script=""):
     newTX=Transaction.newTransaction(
-      inPrvkey,inPubkey,outPubkey,amount,self.tradeUTXO)
+      inPrvkey,inPubkey,outPubkey,amount,self.tradeUTXO,script)
     newTXdict=None
-    if newTX:
+    if type(newTX)==dict:
+      errObj=newTX
+      Node.logger.critical(errObj["errCode"],errObj["errText"])
+      return errObj
+    else:
       newTXdict=utils.obj2dict(newTX)
       for peer in self.nodes:
         try:
@@ -453,9 +461,7 @@ class Node(object):
         except Exception as e:
           Node.logger.error("%s error is %s"%(peer,e))  
       Node.logger.info("transaction广播完成")
-    else:
-      Node.logger.critical("double spend!!,Maybe not enough money.")
-    return newTXdict
+      return newTXdict
 
   def genesisBlock(self,coinbase):
     newBlock=self.findNonce(Block(
@@ -473,8 +479,9 @@ class Node(object):
     txPoolDict.append(coinbase)
     for item in txPool:
       txPoolDict.append(utils.obj2dict(item,sort_keys=True))
-    currentChain = self.syncLocalChain() #gather last node
-    prevBlock = currentChain.lastblock()
+    #currentChain = self.syncLocalChain() #gather last node
+    #prevBlock = currentChain.lastblock()
+    prevBlock = self.blockchain.lastblock()
     
     #mine a block with a valid nonce
     index = int(prevBlock.index) + 1

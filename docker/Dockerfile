@@ -32,7 +32,7 @@ RUN npm install socket.io socket.io-client --save
 RUN echo {presets:[\'env\',\'react\']} > .babelrc
 
 #patch
-RUN pip3 install flask-cors
+RUN pip3 install flask-cors pytz
 RUN npm install flux --save
 RUN npm install bizcharts --save
 

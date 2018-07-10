@@ -1,12 +1,17 @@
 import React from 'react';
-import {Table,Form, Input, Button,Divider,Tag,message,notification } from 'antd';
+import {Table,Form, Input, Button,Divider,Tag,Icon,message,notification } from 'antd';
 import {Link} from 'react-router-dom';
 import moment from 'moment';
+
+import {Controlled as CodeMirror} from 'react-codemirror2'
 
 import TxForm from './txForm.jsx';
 
 const FormItem = Form.Item;
 const Search = Input.Search;
+const {TextArea} = Input
+
+
 
 class BlockList extends React.Component{
   constructor(props) {
@@ -32,9 +37,9 @@ class BlockList extends React.Component{
       title: '矿工',
       dataIndex: 'miner',
       key: 'miner',
-      render: text => <Link to={`/wallet/${text}`}>{text.substr(0,6)+'...'}</Link>,
+      render: text => <Link to={`/wallet/${text}`}><Tag color={'#'+text.substr(0,6)}>{text.substr(0,6)+'...'}</Tag></Link>,
     },{
-      title: '时间',
+      title: <Icon type="clock-circle" style={{ fontSize: 16, color: '#08c' }} />,
       dataIndex: 'timestamp',
       key: 'timestamp',
       render: text => <Tag color="#2a4">{moment(text,"X").fromNow()}</Tag>,
@@ -68,6 +73,7 @@ class BlockList extends React.Component{
       }
     })
   }
+  
   handleData(value){
     let data=[]
     for(var i=value.length-1;i>=0;i--){
@@ -75,9 +81,10 @@ class BlockList extends React.Component{
       let txAmount=0
       for(var j=0;j<value[i].data.length;j++){
         const outs=value[i].data[j].outs
-        for(var k=0;k<outs.length;k++){
-          txAmount += outs[k].amount
-        }
+        //for(var k=0;k<outs.length;k++){
+        //  txAmount += outs[k].amount
+        //}
+        txAmount += outs[0].amount
       }
       //miner
       const miner = value[i].data[0].outs[0].outAddr
@@ -112,9 +119,10 @@ class TradeForm extends React.Component{
   }
   componentDidMount() {
   }
-  handleAjax(path,cb){
+  handleAjax(path,data,cb){
     $.ajax({
-      type: 'GET',    // 请求方式
+      type: 'POST',    // 请求方式
+      data:data,
       url: `http://${this.props.url}/${path}`,
       success: (res, status, jqXHR)=> {
         cb(res)
@@ -124,7 +132,7 @@ class TradeForm extends React.Component{
         message.error(`http://${this.props.url}/${path}错误，请输入正确的地址`);
       }
     })
-  }
+  }  
   handleSubmit(e){
     e.preventDefault();
     this.props.form.validateFields((err,values)=>{
@@ -134,10 +142,14 @@ class TradeForm extends React.Component{
       }
       //message.warn(`trade/${values.inAddr}/${values.outAddr}/${values.amount}`)
       this.setState({data:undefined})
-      this.handleAjax(`trade/${values.inAddr}/${values.outAddr}/${values.amount}`,
+      let path=`${values.inAddr}/${values.outAddr}/${values.amount}`
+      this.handleAjax(encodeURI(`trade/${path}`),{script:values.script},
         (value)=>{
            if (typeof(value)=="object"){
-             this.setState({data:value})
+             if (value.errCode)
+               alert(value.errText)
+             else
+               this.setState({data:value})
            }  
            else {
              //not have enough money
@@ -146,7 +158,6 @@ class TradeForm extends React.Component{
            }
         }
       )
-      
     });
         
   }
@@ -178,13 +189,23 @@ class TradeForm extends React.Component{
             )}
           </FormItem>
           <FormItem
-            label="数字币"
+            label="金额"
           >
             {getFieldDecorator('amount', {
               rules: [
                {required: true, message: 'Please input amount' }],
             })(
               <Input placeholder="input amount" />
+            )}
+          </FormItem>
+          <FormItem
+            label="脚本"
+          >
+            {getFieldDecorator('script', {
+              rules: [
+               {required: false, message: 'Please input script' }],
+            })(
+              <TextArea rows={10} placeholder="input script" style={{color:"green",fontWeight:"bold",backgroundColor:'black'}} />
             )}
           </FormItem>
           <FormItem >

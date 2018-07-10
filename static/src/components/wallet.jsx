@@ -1,13 +1,13 @@
 import React from 'react'
 
 import moment from 'moment';
-import { Row, Col ,Icon,message} from 'antd';
+import { Row, Col ,Icon,message,notification} from 'antd';
 import {Link} from 'react-router-dom'
 
 import {Table,Divider,Collapse} from 'antd'
 const Panel = Collapse.Panel;
 
-import { Form, Input, Button } from 'antd';
+import { Form, Input, Button ,Tag} from 'antd';
 const FormItem = Form.Item;
 
 class FormWalletAddress extends React.Component {
@@ -19,6 +19,23 @@ class FormWalletAddress extends React.Component {
     // To disabled submit button at the beginning.
     //this.props.form.validateFields();
   }
+  
+  handleAjax(url,path,cb){
+    $.ajax({
+      type: 'GET',    // 请求方式
+      url: `http://${url}/${path}`,
+      success: (res, status, jqXHR)=> {
+        cb(res)
+      },
+      error: (res,status,error)=>{
+        notification.error(
+          {message:"出现错误",
+           description:`http://${this.props.url}/${path}错误,请输入正确的地址`
+          });
+      }
+    })
+  }
+  
   handleSubmit(e){
     e.preventDefault();
     this.props.form.validateFields((err,values)=>{
@@ -27,7 +44,16 @@ class FormWalletAddress extends React.Component {
         return
       }
       if (this.props.onSubmit){
-        this.props.onSubmit(values.walletAddress)
+        let address = values.walletAddress
+        if (address.length!=64){
+          this.handleAjax(this.props.url,`wallet/getAddress/${address}`,
+            (value)=>{
+              this.props.onSubmit(value)
+            }
+           ) 
+        }else{
+          this.props.onSubmit(address)
+        }
       }
     });
         
@@ -121,7 +147,7 @@ class UtxoTable extends React.Component{
       title: 'outAddr',
       dataIndex: 'outAddr',
       key: 'outAddr',
-      render: text => <a href="javascript:;">{text.substr(0,6)+'...'}</a>,
+      render: text => <a href="javascript:;"><Tag color={'#'+text.substr(0,6)}>{text.substr(0,6)+'...'}</Tag></a>,
     },{
       title: 'amount',
       dataIndex: 'amount',
@@ -133,7 +159,7 @@ class UtxoTable extends React.Component{
       return(
         <div>
          <Collapse defaultActiveKey={['0']} >
-          <Panel header={this.props.type+','+this.state.total} key={0}>
+          <Panel header={<div><h3>{this.props.type}</h3><Tag color="red">总金额:{this.state.total}</Tag></div>} key={0}>
             <Table dataSource={utxoData} columns={columns} pagination={false}/>
           </Panel>
          </Collapse>
@@ -161,7 +187,7 @@ export default class Wallet extends React.Component{
       const url = document.domain +":" + port
       return(
         <div>
-          <WrappedForm onSubmit={this.setWalletAddress}/>
+          <WrappedForm url={url} onSubmit={this.setWalletAddress}/>
               <div>
                 <UtxoTable url={url} type={`utxo/main/${this.state.walletAddress}`}/>     
                 <UtxoTable url={url} type={`utxo/trade/${this.state.walletAddress}`}/>

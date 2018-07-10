@@ -28,7 +28,10 @@ from network import Gossip
 
 import traceback
 import copy
+import globalVar as _global
 
+
+_global._init()
 
 #args check & use help
 parser=argparse.ArgumentParser()
@@ -94,7 +97,6 @@ logger.logger = log
 
 #make pvkey,pbkey,wallet address  
 mywallet=Wallet(args.name)
-log.error(args.me,args.port)
 
 #make node
 node=Node({"host":args.host,
@@ -108,12 +110,6 @@ socketio = SocketIO(app,async_mode="threading")
 #register me and get all alive ndoe list
 if args.syncNode:
   node.syncOverallNodes()
-
-log.debug(1,"debug")
-log.info(2,"info")
-log.warn(3,"warn")
-log.error(4,"error")
-log.critical(5,"critical")
 
 log.info("1.node.nodes {}".format(node.nodes))
 myGossip = Gossip(node.nodes,me)
@@ -135,7 +131,6 @@ if len(localChain.blocks)==0:
     t1=Transaction.newCoinbase(mywallet.address)
     coinbase=utils.obj2dict(t1)
     node.genesisBlock(coinbase)
-
 
 #sync blockchain
 bestIndex = node.syncOverallChain(args.full) 
@@ -165,6 +160,7 @@ blocker.setDaemon(True)
 blocker.start()
 
 log.info("miner is ready")
+
 #sync utxo
 node.resetUTXO()
 
@@ -393,6 +389,23 @@ def mine():
   newBlock=node.mine(coinbase)
   return jsonify(utils.obj2dict(newBlock,indent=2)),200
 #node function:list,register,unregister,sync
+@app.route('/node/info',methods=['GET'])
+def nodeInfo():
+  peers=[]
+  for i in list(node.nodes):
+    peers.append({"peer":i,"isAlive":True})
+  info={
+    "peers":peers,
+    "me":node.me,
+    "entryNode":node.entryNode,
+    "wallet.address":mywallet.address,
+    "wallet.balance":node.blockchain.utxo.getBalance(mywallet.address),
+    "node.isMining":node.isMining,
+    "node.isBlockSyncing":node.isBlockSyncing,
+    "blockchain.maxindex":node.blockchain.maxindex(),
+    "blockchain.maxindex.nonce":node.blockchain.blocks[node.blockchain.maxindex()].nonce    
+  }
+  return jsonify(info),200
 @app.route('/node/list',methods=['GET'])
 def nodeList():
    utils.warning("node.nodes",node.nodes)
@@ -453,7 +466,12 @@ def getBalance(address):
     wallet = Wallet(address)
     balance = node.blockchain.utxo.getBalance(wallet.address)
     return jsonify({"address":wallet.address,"pubkey":wallet.pubkey64D,"blance":balance})
-
+@app.route('/wallet/getAddress/<string:name>',methods=['GET'])
+def getAddress(name):
+  if name=='me':
+    name=me
+  wallet = Wallet(name)
+  return wallet.address
 @app.route('/wallet/create/<string:name>',methods=['GET'])
 def createwallet(name):
   if name=='me':
@@ -490,8 +508,19 @@ def syncwallet(peer,name):
       return "error on wallet/reset/"+name
   return jsonify(dict)
 
+@app.route('/trade/<nameFrom>/<nameTo>/<amount>',methods=['POST'])
+def newTrade1(nameFrom,nameTo,amount):
+  script = request.form.get('script',default="")
+  response =node.tradeTest(nameFrom,nameTo,float(amount),script)
+  errCode = response.get("errCode")
+  if not errCode:
+    return jsonify(response)
+  else:
+    return response.get("errText")
+
 @app.route('/trade/<nameFrom>/<nameTo>/<amount>',methods=['GET'])
-def newTrade(nameFrom,nameTo,amount):
+def newTrade2(nameFrom,nameTo,amount):
+  log.critical("trade get test")
   response =node.tradeTest(nameFrom,nameTo,float(amount))
   if response:
     return jsonify(response)

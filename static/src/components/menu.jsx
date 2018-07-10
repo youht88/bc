@@ -43,8 +43,7 @@ export default class MyMenu extends React.Component {
             <span><Link to ="/blockchain">区块链</Link></span>
           </Menu.Item>
           <SubMenu key="sub1" title={<span><Icon type="mail" /><span>节点</span></span>}>
-            <Menu.Item key="5">列表</Menu.Item>
-            <Menu.Item key="6">注册</Menu.Item>
+            <Menu.Item key="5"><Link to="/node">总览</Link></Menu.Item>
             <Menu.Item key="7">Gossip</Menu.Item>
             <Menu.Item key="8">PBFT</Menu.Item>
           </SubMenu>

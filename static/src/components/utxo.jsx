@@ -7,13 +7,15 @@
   import {Table,Divider,Collapse} from 'antd'
   const Panel = Collapse.Panel;
   
-  import { Form, Input, Button } from 'antd';
+  import { Form, Input, Button ,Tag} from 'antd';
   const FormItem = Form.Item;
+  
+  import {Modal} from 'antd';
   
   class UtxoTable extends React.Component{
     constructor(props){
       super(props)
-      this.state={utxoData:[],total:0}
+      this.state={visible:false,script:"",utxoData:[],total:0}
       this.setData = this.setData.bind(this)
     }
     componentDidMount(){
@@ -46,6 +48,7 @@
                "index":item[j].index,
                "outAddr":item[j].txout.outAddr,
                "amount" :item[j].txout.amount,
+               "script" :item[j].txout.script,
                "key":txHash+j
             })
           }
@@ -57,36 +60,58 @@
         message.info("no data")
       }
     }
+    onClick(text){
+      this.setState({script:text,visible:true})
+    }
+    handleOk(){
+      this.setState({visible:false})
+    }
     render(){
       const columns = [{
-        title: 'txHash',
+        title: 'hash',
         dataIndex: 'txHash',
         key: 'txHash',
         render: text => <Link to={`/transaction/${text}`}>{text.substr(0,6)+'...'}</Link>,
       },{
-        title: 'index',
+        title: '索引',
         dataIndex: 'index',
         key: 'index',
       },{
-        title: 'outAddr',
+        title: '地址',
         dataIndex: 'outAddr',
         key: 'outAddr',
-        render: text => <Link to={`/wallet/${text}`}>{text.substr(0,6)+'...'}</Link>,
+        render: text => <Link to={`/wallet/${text}`}><Tag color={'#'+text.substr(0,6)}>{text.substr(0,6)+'...'}</Tag></Link>,
       },{
-        title: 'amount',
+        title: '金额',
         dataIndex: 'amount',
         key: 'amount',
+      },{
+        title: '脚本',
+        dataIndex: 'script',
+        key: 'script',
+        render: text => text ? <Icon type="file-text" style={{color:"blue"}} onClick={this.onClick.bind(this,text)}/> : <Icon type="file" style={{color:"#ddd"}}/>,
       }];
       
       const {utxoData} = this.state
       if (utxoData){
         return(
-          <div>
+          <div> 
            <Collapse defaultActiveKey={['0']} >
-            <Panel header={this.props.type+','+this.state.total} key={0}>
+            <Panel header={<div><h4>{this.props.type}</h4>
+                           <Tag color="red">总金额:{this.state.total}</Tag></div>} key={0}>
               <Table dataSource={utxoData} columns={columns} pagination={false}/>
             </Panel>
            </Collapse>
+           <Modal
+              title="脚本"
+              visible={this.state.visible}
+              cancelText="取消"
+              closable={false}
+              onOk={this.handleOk.bind(this)}
+              onCancel={this.handleOk.bind(this)}
+            >
+              <pre>{this.state.script}</pre>
+            </Modal>
           </div>
           )
         }

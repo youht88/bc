@@ -7,8 +7,9 @@ import {Link} from 'react-router-dom'
 import {Table,Divider,Collapse} from 'antd'
 const Panel = Collapse.Panel;
 
-import { Form, Input, Button } from 'antd';
+import { Form, Input, Button ,Tag} from 'antd';
 const FormItem = Form.Item;
+import {Alert} from 'antd';
 
 class FormTXHash extends React.Component {
   constructor() {
@@ -91,7 +92,7 @@ export default class TxForm extends React.Component{
       title: 'outAddr',
       dataIndex: 'outAddr',
       key: 'outAddr',
-      render: text => <Link to={`/wallet/${text}`}>{text.substr(0,6)+'...'}</Link>,
+      render: text => <Link to={`/wallet/${text}`}><Tag color={'#'+text.substr(0,6)}>{text.substr(0,6)+'...'}</Tag></Link>,
     }, {
       title: 'amount',
       dataIndex: 'amount',
@@ -149,7 +150,7 @@ export default class TxForm extends React.Component{
       }
       this.setState({insData:insData})
       this.setState({outsData:outsData})
-      this.setState({hash:data.hash,timestamp:data.timestamp})
+      this.setState({hash:data.hash,timestamp:data.timestamp,script:data.outs[0].script})
     }
     else {
       message.info("no data")
@@ -164,7 +165,7 @@ export default class TxForm extends React.Component{
     return <WrappedForm url={url} afterSubmit={this.setData.bind(this)}/>
   }
   render(){
-    const {hash,timestamp,insData,outsData,insColumns,outsColumns} = this.state
+    const {hash,timestamp,insData,outsData,insColumns,outsColumns,script} = this.state
     if (insData){
       return(
       <div>
@@ -189,6 +190,7 @@ export default class TxForm extends React.Component{
               <Table dataSource={outsData} columns={outsColumns} pagination={false}/>
             </Col>
           </Row>
+          <Alert type="info" description={<pre>{script?script:"No Script"}</pre>}></Alert>
         </Panel>
       </Collapse>
       </div>
