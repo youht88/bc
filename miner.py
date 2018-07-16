@@ -7,6 +7,7 @@ from flask import Flask,jsonify,request,render_template,make_response
 from flask_socketio import SocketIO
 from flask_socketio import send,emit
 from flask_cors import CORS
+from contract import Contract
     
 import requests
 import os,shutil
@@ -146,7 +147,9 @@ def blockerProcess():
     node.isBlockSyncing=True
     try:
       maxindex = node.blockchain.maxindex()
-      fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
+      fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '*.json'))
+      #fileset=list(filter(lambda x:int(x.split('_')[0])>maxindex,[os.path.basename(f) for f in fileset]))
+      fileset=[os.path.basename(f) for f in fileset]
       if len(fileset)>=1 and fileset!=prevFileset: #与上一次files集合不同
         prevFileset = fileset
         node.blockPoolSync()
@@ -508,6 +511,15 @@ def syncwallet(peer,name):
       return "error on wallet/reset/"+name
   return jsonify(dict)
 
+@app.route('/wallet/get/peers',methods=['GET'])
+def getPeersWallet():
+  def printUrl(res,url,*args):
+    log.critical(url)
+  for peer in list(node.nodes):
+    if not (peer == node.me):
+      node.httpProcess("http://{}/wallet/get/{}/me".format(node.me,peer),timeout=3,
+          cb=printUrl)
+  return 'ok'
 @app.route('/trade/<nameFrom>/<nameTo>/<amount>',methods=['POST'])
 def newTrade1(nameFrom,nameTo,amount):
   script = request.form.get('script',default="")
@@ -522,11 +534,12 @@ def newTrade1(nameFrom,nameTo,amount):
 def newTrade2(nameFrom,nameTo,amount):
   log.critical("trade get test")
   response =node.tradeTest(nameFrom,nameTo,float(amount))
-  if response:
+  errCode = response.get("errCode")
+  if not errCode:
     return jsonify(response)
   else:
-    return "not have enouth money"
-  
+    return response.get("errText")
+
 @app.route('/client/<key>/<value>',methods=['GET'])
 def cli(key,value):
   t1=utils.CommonThread(myGossip.cli,(key,value))
@@ -575,6 +588,16 @@ def handle_my_eustom_event(json):
     emit('idx1',hashlib.sha256(str(i).encode()).hexdigest())
     time.sleep(0.5)  
 
+@app.route('/check/script',methods=['POST'])
+def checkScript():
+  script = request.form.get('script',default="")
+  contract = Contract(script)
+  result = contract.check()
+  if result["errCode"]==0:
+    return result["result"]
+  else:
+    return result["errText"]
+    
 #start program
 if __name__ == '__main__':
   app.config['JSON_SORT_KEYS']=False

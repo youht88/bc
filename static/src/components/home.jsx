@@ -1,5 +1,5 @@
 import React from 'react';
-import {Table,Form, Input, Button,Divider,Tag,Icon,message,notification } from 'antd';
+import {Table,Form, Input, Button,Divider,Tag,Icon,message,notification,Alert } from 'antd';
 import {Link} from 'react-router-dom';
 import moment from 'moment';
 
@@ -114,8 +114,9 @@ class BlockList extends React.Component{
 class TradeForm extends React.Component{
   constructor(props) {
     super(props);
-    this.state={data:undefined}
+    this.state={data:undefined,errText:null}
     this.handleSubmit = this.handleSubmit.bind(this)
+    this.handleAjax = this.handleAjax.bind(this)
   }
   componentDidMount() {
   }
@@ -133,6 +134,25 @@ class TradeForm extends React.Component{
       }
     })
   }  
+  handleCheck(e){
+    e.preventDefault();
+    this.props.form.validateFields((err,values)=>{
+      if(err){
+        message.error("新交易表单输入错误！")
+        return
+      }
+      if (values.script)
+        this.handleAjax('check/script',{script:values.script},
+           (data)=>{
+              this.setState({errText:data})
+              if (data=="True" || data=="False")
+                message.success("check right.")
+           }
+        )
+      else
+        message.success("check right.")
+    })
+  }
   handleSubmit(e){
     e.preventDefault();
     this.props.form.validateFields((err,values)=>{
@@ -209,10 +229,12 @@ class TradeForm extends React.Component{
             )}
           </FormItem>
           <FormItem >
-            <Button type="primary" onClick={this.handleSubmit}>确定</Button>
+            <Button type="primary" onClick={this.handleCheck.bind(this)} style={{margin:10}}>检查</Button>
+            <Button type="primary" onClick={this.handleSubmit} style={{margin:10}}>提交</Button>
           </FormItem>
         </Form>
       </div>
+      {this.state.errText ? <Alert type="error" description={this.state.errText}></Alert> :null}
       {this.state.data ? <TxForm data={this.state.data} idx={0}/> : null}
      </div>
     );

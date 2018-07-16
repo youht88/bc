@@ -19,13 +19,27 @@
       this.setData = this.setData.bind(this)
     }
     componentDidMount(){
-      this.handleAjax(this.props.type,(data)=>{
+      this.ajaxGet(this.props.type,(data)=>{
             this.setData(data)
       })
     }
-    handleAjax(path,cb){
+    ajaxGet(path,cb){
       $.ajax({
         type: 'GET',    // 请求方式
+        url: `http://${this.props.url}/${path}`,
+        success: (res, status, jqXHR)=> {
+          cb(res)
+        },
+        error: (res,status,error)=>{
+          // 控制台查看响应文本，排查错误
+          message.error(`http://${this.props.url}/${path}错误,请输入正确的地址`);
+        }
+      })
+    }
+    ajaxPost(path,data,cb){
+      $.ajax({
+        type: 'POST',    // 请求方式
+        data: data,
         url: `http://${this.props.url}/${path}`,
         success: (res, status, jqXHR)=> {
           cb(res)
@@ -62,6 +76,11 @@
     }
     onClick(text){
       this.setState({script:text,visible:true})
+    }
+    handleCheck(){
+      this.ajaxPost('check/script',{script:this.state.script},(value)=>{
+            alert(value)
+      })
     }
     handleOk(){
       this.setState({visible:false})
@@ -105,10 +124,11 @@
            <Modal
               title="脚本"
               visible={this.state.visible}
-              cancelText="取消"
+              cancelText="检查"
+              okText="关闭"
               closable={false}
               onOk={this.handleOk.bind(this)}
-              onCancel={this.handleOk.bind(this)}
+              onCancel={this.handleCheck.bind(this)}
             >
               <pre>{this.state.script}</pre>
             </Modal>

@@ -40,7 +40,7 @@ class Tree:
       node = self.addNode(None,None,item,hash)
       nodes.append(node)
     self.levels.append(nodes)
-    for i in range(int(math.log2(len(data)))):
+    for i in range(int(math.log2(len(data)))+1):
       newLevel = []
       for j in range(0,len(nodes),2):
         if j+1==len(nodes): 
@@ -56,7 +56,7 @@ class Tree:
   def getProof(self, index):
     if self.levels is None:
       return None
-    elif index > len(self.levels[0])-1 or index < 0:
+    elif index==None or index > len(self.levels[0])-1 or index < 0:
       return None
     else:
       proof = []
@@ -72,9 +72,13 @@ class Tree:
           proof.append({siblingPos: siblingValue})
           index = int(index / 2.)
       return proof
-
+  def getIndex(self,hash):
+    try:
+      return list(map(lambda x:x.value,self.levels[0])).index(hash)
+    except:
+      return None 
   def validProof(self, proof, targetHash, merkleRoot):
-    if len(proof) == 0:
+    if proof==None or len(proof) == 0:
       return targetHash == merkleRoot
     else:
       proofHash = targetHash
@@ -91,16 +95,28 @@ class Tree:
             
 if __name__ == "__main__":
   t = Tree("md5")
-  t.makeTree(["a","b","c","d","e"],True)
+  t.makeTree([str(i) for i in range(1000)],True)
+  '''
   print('*'*10,"merkleRoot",'*'*10)
-  print("root:",t.root.value,"root.left:",t.root.left.value,"root.right:",t.root.right.value)
+  print(t.root.value,t.root.left.value)
+  #print("root:",t.root.value,
+  #      "root.left:",t.root.left.value,
+  #      "root.right:",t.root.right.value)
   print('*'*10,"merkleTree",'*'*10)
   for i in range(len(t.levels)):
     print("level{}:{}".format(i,[j.value for j in t.levels[i]]))
   for index in range(len(t.levels[0])):
-    print('*'*10,"proof path of {}".format(index),'*'*10)
+    print('*'*10,"proof path of index {}".format(index),'*'*10)
     proof = t.getProof(index)
     print([i for i in proof])
-    print('*'*10,"validProof of {}".format(index),'*'*10)
+    print('*'*10,"validProof of index{}".format(index),'*'*10)
     print(t.validProof(proof,t.levels[0][index].value,t.root.value))
-  
+  '''
+  search='123'
+  value=hashlib.md5(search.encode()).hexdigest()  
+  index = t.getIndex(value)
+  proof = t.getProof(index)
+  print('*'*10,"validProof of {}".format(search),'*'*10)
+  print("hash:{} \n index:{} \n proof path:{} \ntotal levels:{}".format(value,index,proof,len(t.levels)))
+  print(len(t.levels[-1]),len(t.levels[-2]))
+  print(t.validProof(proof,value,t.root.value))

@@ -35,5 +35,5 @@ RUN echo {presets:[\'env\',\'react\']} > .babelrc
 RUN pip3 install flask-cors pytz
 RUN npm install flux --save
 RUN npm install bizcharts --save
-
+RUN pip3 install kademlia
 WORKDIR /bc

@@ -8,6 +8,7 @@ import copy
 
 import time
 from wallet import Wallet
+from contract import Contract
               
 import logger
 import globalVar as _global
@@ -59,44 +60,17 @@ class TXout(object):
       if self.script=="":
         return True
       else:
-        #run the script 
-        try:
-          g={}
-          l={"amount":self.amount}
-          exec(self.script,g,l)
-          result=l["fun"](l)
-          if result==True:
+        contract = Contract(self.script)
+        result = contract.check()
+        if result["errCode"]==0:
+          if result["result"]=="True":
             return True
           else:
-            return False  
-        except Exception as e:
-          TXout.logger.critical("canbeUnlockWith",e)
+            return False
+        else:
           return False
-    return False    
-class Contract(object):
-  def __init__(self,script,sandbox={}):
-    this.status=0
-    this.compileError=None
-    this.executeError=None
-    this.script=script
-    this.sandbox=sandbox
-  def _compile():
-    try:
-      logger.logger.critical(this.script)
-      this.scriptCompiled=compile(this.script,'','exec')
-    except Exception as e:
-      this.compileError=e
-      this.scriptCompiled=''
-  def execute():
-    if not this.compileError :
-      try:
-        exec(this.scriptCompiled,{},this.sandbox)
-        return True
-      except Exception as e:
-        this.error=e
-        return False
-  def sandbox():
-    return this.sandbox
+    else:
+      return False    
     
 class Transaction(object):
     def __init__(self,**args):
@@ -136,17 +110,10 @@ class Transaction(object):
     @staticmethod
     def newTransaction(inPrvkey,inPubkey,outPubkey,amount,utxo,script=""):
       if script:
-        logger.logger.critical("check script")
-        try:
-          bin=compile(script,'','exec')
-        except Exception as e:
-          return {"errCode":2,"errText":repr(e)}
-        try:
-          l={"a":"x"}
-          exec(bin,{},l)
-          l["fun"](l)
-        except Exception as e:
-          return {"errCode":3,"errText":repr(e)}
+        contract = Contract(script)
+        result = contract.check()
+        if result["errCode"]!=0:
+          return result
       ins=[]
       outs=[]
       inAddr=Wallet.address(inPubkey)

@@ -1,3 +1,5 @@
+#coding:utf-8
+
 from block import Block
 from transaction import TXout
 import utils
@@ -68,21 +70,40 @@ class UTXO(object):
     if not utxoSet:
       utxoSet=self.utxoSet
     #ins
-    if TX.isCoinbase() == False:
+    if TX.isCoinbase() == False:  
       for idx,txin in enumerate(TX.ins):
+        #if #txin.prevHash=="97384dff0f5670d64b0a486b89fff64bb775279bfaa247972c672d104e9de2dd":
+          #UTXO.logger.critical("error debug",utils.obj2json(utxoSet[txin.prevHash],indent=2))   
         try:
           outs=utxoSet[txin.prevHash]
         except:
           UTXO.logger.critical("1.double spend")
           return False
+        findIndex = False
         for i,out in enumerate(outs) :
           if out["index"] == txin.index:
+            findIndex=True
+            #check out canbeUnlock?
+            try:
+              if txin.prevHash=="97384dff0f5670d64b0a486b89fff64bb775279bfaa247972c672d104e9de2dd":
+                UTXO.logger.critical("error debug1")
+              if not out["txout"].canbeUnlockWith(txin.inAddr):
+                UTXO.logger.critical("0.script locked","txin:{}-{}".format(txin.prevHash,txin.index),txin.inAddr,out["txout"].outAddr)
+                return False
+            except Exception as e:
+               UTXO.logger.critical("意外错误?",e)
+               return False
+            #no problem
             del outs[i]
+        if findIndex==False:
+          #not find prevHash-index point
+          UTXO.logger.critical("2.double spend")
+          return False
         if outs==[]:
           try:
             del utxoSet[txin.prevHash]
           except:
-            UTXO.logger.critical("2.double spend")
+            UTXO.logger.critical("3.double spend")
             return False
         else:
           utxoSet[txin.prevHash]=outs
@@ -130,7 +151,7 @@ class UTXO(object):
             "txout":TXout({
                 "amount" : prevTX.outs[txin.index].amount,
                 "outAddr": prevTX.outs[txin.index].outAddr,
-                "script" : prevTx.outs[txin.index].script})
+                "script" : prevTX.outs[txin.index].script})
                         })
         utxoSet[txin.prevHash] = outs
     self.utxoSet = utxoSet
@@ -195,10 +216,10 @@ class UTXO(object):
       
 class Chain(object):
   def __init__(self, blocks):
+    Chain.logger = logger.logger
+    _global.set("blockchain",self)
     self.blocks = blocks
     self.utxo = UTXO('main')
-    Chain.logger = logger.logger
-    _global.setValue("blockchain",self)
   def isValid(self):
     for index, cur_block in enumerate(self.blocks[1:]):
       prev_block = self.blocks[index]
@@ -237,7 +258,7 @@ class Chain(object):
     return None   
   
   def findBlockByIndex(self, index):
-    if index<=0:
+    if index<0:
       return None
     if len(self) >= index + 1:
       return self.blocks[index]
@@ -275,8 +296,12 @@ class Chain(object):
           transactions[transaction.hash]=transaction
     return transactions
   def lastblock(self):
+    if len(self.blocks)==0:
+      return None
     return self.blocks[-1]
   def maxindex(self):
+    if len(self.blocks)==0:
+      return None
     return self.blocks[-1].index
   def addBlock(self, new_block):
     if new_block.index >= 1:

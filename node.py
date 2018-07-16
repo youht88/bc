@@ -26,6 +26,7 @@ import globalVar as _global
 class Node(object):
   def __init__(self,dict):
     Node.logger = logger.logger
+    _global.set("node",self)
     self.me = dict["me"]
     self.entryNode=dict["entryNode"]
     self.host=dict["host"]
@@ -163,7 +164,7 @@ class Node(object):
       Node.logger.info("Peer at %s is running. " % peer)
     return result
     
-  def peerHttp(self,path,timeout,cb,percent=1,nodes=[],*cbArgs):
+  def peerHttp(self,path,timeout=3,cb=None,percent=1,nodes=[],*cbArgs):
     if nodes==[]:
       nodes = self.getRandom(percent)
     threads=[]
@@ -193,13 +194,14 @@ class Node(object):
                    
   def syncToBlockPool(self,nodes,fromIndex,toIndex):
     def callback(res,url,cbArgs):
-      try:
-         blocks=[Block(bdict) for bdict in res.json()]
-         for block in blocks:
-           if block.isValid():
-             block.saveToPool()
-      except:
-         Node.logger.error("error on syncRangeChain",traceback.format_exc())
+      if type(res.json())==dict:
+        try:
+           blocks=[Block(bdict) for bdict in res.json()]
+           for block in blocks:
+             if block.isValid():
+               block.saveToPool()
+        except:
+           Node.logger.error("error on syncRangeChain",traceback.format_exc())
 
     cnt = len(nodes)
     res="nodes=[]"
@@ -368,6 +370,9 @@ class Node(object):
       i=-1
       if len(fileset)==0:
         Node.logger.info("not find prev block #{} in blockPool".format(index))
+        url="http://{}/blockchain/get/{}/{}".format(self.me,self.entryNode,index)
+        Node.logger.critical("resolveForm",url)
+        utils.CommonThread(self.httpProcess,(url))
         break
       recursion=False
       for i,filepath in enumerate(fileset):
@@ -379,6 +384,7 @@ class Node(object):
             if fork.prev_hash != block.hash:
               continue
             if index>0:
+              Node.logger.critical(index,block.index,block.nonce)
               Node.logger.info("fork3.poolblock({}-{}) can link blockchain({}-{})?".format(block.index,block.nonce,self.blockchain.findBlockByIndex(index - 1).index,self.blockchain.findBlockByIndex(index - 1).nonce))
             else:
               Node.logger.info("fork3.poolblock({}-{}) isGenesisblock?".format(block.index,block.nonce,index))
@@ -422,7 +428,13 @@ class Node(object):
               recursion=True
               break
       if i==len(fileset) - 1 and not recursion:
-        Node.logger.info("fork9.find prev block in blockPool,but none can link fork block or can link main chain")
+        Node.logger.info("fork14.find prev block in blockPool,but none can link fork block or can link main chain")
+        if index==0:
+          url="http://{}/blockchain/get/{}/{}".format(self.me,self.entryNode,0)
+        else:        
+          url="http://{}/blockchain/get/{}/{}".format(self.me,self.entryNode,index-1)
+        Node.logger.critical("resolveForm",url)
+        #utils.CommonThread(self.httpProcess,(url))
         break
     return False
     
@@ -439,7 +451,7 @@ class Node(object):
       return self.trade(
         wFrom.key[0],wFrom.key[1],wTo.key[1],amount,script)
     else:
-      return "{} have not private key on this node".format(nameFrom)
+      return {"errCode":2,"errText":"{} have not private key on this node".format(nameFrom)}
   def trade(self,inPrvkey,inPubkey,outPubkey,amount,script=""):
     newTX=Transaction.newTransaction(
       inPrvkey,inPubkey,outPubkey,amount,self.tradeUTXO,script)

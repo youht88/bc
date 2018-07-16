@@ -127,12 +127,12 @@ export default class Blockchain extends React.Component{
     return this.state.blockchain && this.state.blockchain.map((block,idx)=>{
       return (
         <Col key={idx}>
-          <Card
-          title={<div><h3>{block.index}-{block.nonce}</h3>
+          <Card 
+          style={{backgroundColor:'#eee'}}
+          title={<div ><h3><font color={'#'+block.hash.substr(20,6)}>{block.index}-{block.nonce}</font></h3>
             <h5><strong>hash:</strong>
             <Link to={`/block/${block.hash}`}>{block.hash.substr(0,6)}...</Link></h5></div>}
           hoverable
-          style={{backgroundColor:'#eee'}}
           >
           <p><strong>prevHash:</strong>
           <Link to={`/block/${block.prev_hash}`}>{block.prev_hash.substr(0,6)}...</Link></p>
