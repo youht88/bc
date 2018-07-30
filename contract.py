@@ -1,4 +1,5 @@
 import time,pytz,datetime
+import requests
 import globalVar as _global
 
 class Contract(object):
@@ -24,8 +25,12 @@ class Contract(object):
     sandbox["blockchain"]=_global.get("blockchain")
     sandbox["node"] = _global.get("node")
     sandbox["dt"]=self.dt()
+    sandbox["http"]=self.http
     self.sandbox=sandbox
   def dt(self):
     tz=pytz.timezone('Asia/Shanghai')
     dt=datetime.datetime.now(tz).strftime('%Y%m%d%H%M%S')
     return dt
+  def http(self,url,params={},timeout=3):
+    res = requests.get(url,params=params,timeout=timeout)
+    return res

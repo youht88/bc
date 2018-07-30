@@ -6,7 +6,82 @@ import utils
 import time
 import logger
 
+from kademlia.network  import Server
+from kademlia.protocol import KademliaProtocol
+from kademlia.storage  import ForgetfulStorage
+import asyncio
 
+from flask_socketio import Namespace,emit
+from socketIO_client import SocketIO as SocketIO_Client
+from socketIO_client import BaseNamespace
+
+
+from requests.exceptions import ConnectionError
+
+import logger
+import logging
+#handler = logging.StreamHandler()
+#formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#handler.setFormatter(formatter)
+#log = logging.getLogger('kademlia')
+#log.addHandler(handler)
+log = logger.Logger("kademlia","DEBUG")
+log.registHandler("./miner.log")
+logger.logger = log
+
+logging.getLogger('socketIO-client').setLevel(logging.CRITICAL)
+logging.basicConfig()
+
+class BcProtocol(KademliaProtocol):
+  pass
+
+class BcServer(Server):
+  protocol_class = BcProtocol
+
+class BcForgetfulStorage(ForgetfulStorage):
+  def __setitem__(self, key, value):
+    if key in self.data:
+        del self.data[key]
+    self.data[key] = (time.monotonic(), value)
+    self.cull()
+    log.critical("set key=value:",key,value)
+  
+class KAD(object):
+  def __init__(self,host,port):
+    self.host = host
+    self.port = port
+    self.bootstrap_node = (host,int(port))
+    self.server = None
+    self.loop = None
+    self.loopThread = None
+  def _startLoop(self):
+    self.loop.run_until_complete(self.server.bootstrap([self.bootstrap_node]))  
+    self.loop.run_forever()
+  def start(self):
+    self.loop = asyncio.get_event_loop()
+    self.loop.set_debug(True)
+    self.server = BcServer(storage=BcForgetfulStorage())
+    self.server.listen(self.port)
+    self.loopThread = utils.CommonThread(self._startLoop,())
+    self.loopThread.setDaemon(True)
+    self.loopThread.start()
+  def set(self,key,value):
+    #res = self.loop.run_until_complete(self.server.set(key,value))
+    res = asyncio.run_coroutine_threadsafe(self.server.set(key,value),self.loop)
+    result=res.result()
+    return str(result)
+  def get(self,key):
+    #res = self.loop.run_until_complete(self.server.get(key))
+    res = asyncio.run_coroutine_threadsafe(self.server.get(key),self.loop)
+    result = res.result()
+    if result:
+      return result
+    else:
+      return "None"
+  def __del__(self):
+    if self.server:
+      self.server.stop()
+      self.loop.close()
 class Gossip(object):
   def __init__(self,nodes,me):
     Gossip.logger = logger.logger
@@ -17,7 +92,7 @@ class Gossip(object):
       pass
     self.me = me
     self.data={}
-    self.broadcastNum=2
+    self.broadcastNum=1
   def cli(self,key,value):
     Gossip.logger.debug("cli",self.nodes)
     valHash = hashlib.sha256(value.encode()).hexdigest()
@@ -190,4 +265,80 @@ class Gossip(object):
       Gossip.logger.info("Peer at %s is running. " % peer)
       
     return result
-  
+    
+class MinerNamespace(Namespace):
+  def on_connect(self):
+    print("connect")
+  def on_disconnect(self):
+    print("disconnect")
+  def on_my_event(self,data):
+    emit('my_res',data)
+
+class PubNamespace(BaseNamespace):
+  def on_connect(self,*args):
+    print("[Connected to server]")
+  def on_disconnect(self):
+    print('[Disconnected from server]')
+  def on_wellcome(self,data):
+    print("wellcome",data)
+  def on_goodbye(self,data):
+    print("goodbye",data)
+  def on_myevent(self,*args):
+    print("recieved from remote",args)
+    with SocketIO_Client("127.0.0.1",5000,Namespace2) as socketioLocal:
+      print("sync to local server")
+      socketioLocal.emit("event",args)
+  def on_broadcast(self,*args):
+    #print("6.geted from entry Server",args)
+    print("7.sync from local client to local server")
+    socketioLocal = SocketioClient("127.0.0.1:5000",PrvNamespace,'/prv')
+    socketioLocal.listenOnce("localServer",args[0],"localServerResponse",lambda arg:print(arg))
+    
+    #socketIO = SocketIO_Client("127.0.0.1",5000)
+    #socketioLocal = socketIO.define(PrvNamespace,'/prv')
+    #socketioLocal.emit("localServer",args[0])
+    #socketIO.wait(seconds=1)
+    
+          
+class PrvNamespace(BaseNamespace):
+  def on_test(self,*args):
+    print("11.just a test")
+  def on_broadcast(self,*args):
+    print("8.geted from me",args)
+    
+class SocketioClient(object):
+  def __init__(self,entryNode,tNamespace=None,path='/',me=None,params={}):
+    self.host = entryNode.split(':')[0]
+    self.port = int(entryNode.split(':')[1])
+    self.tNamespace = tNamespace
+    self.params = params
+    self.path = path
+    self._client=None
+    self.client = None
+    self.loop = None
+    self.loopThread = None
+    self.me=me
+    self.params["me"]=self.me
+  async def conn(self):
+    self._client = SocketIO_Client(self.host,self.port,params=self.params)
+    self.client = self._client.define(self.tNamespace,self.path) 
+    #self.client.emit("event",{"a":123})
+  def _startLoop(self):
+    self.loop.run_until_complete(self.conn())  
+    self._client.wait()
+    #self._client.wait_for_callbacks(seconds=1) 
+    #self.loop.run_forever()
+  def start(self):
+    self.loop = asyncio.get_event_loop()
+    self.loopThread = utils.CommonThread(self._startLoop,())
+    self.loopThread.setDaemon(True)
+    self.loopThread.start()
+  def listenOnce(self,emitEventname,data,respEventname=None,fun=None):
+    try:
+      self._client = SocketIO_Client(self.host,self.port,wait_for_connection=False,params=self.params)
+      self.client = self._client.define(self.tNamespace,self.path) 
+      self.client.once(respEventname,fun)
+      self.client.emit(emitEventname,data)
+      self._client.wait(seconds=1)
+    except ConnectionError:
+        print('The server is down. Try again later.')

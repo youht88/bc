@@ -4,8 +4,7 @@ from block import Block
 from transaction import Transaction
 from chain import UTXO
 from flask import Flask,jsonify,request,render_template,make_response
-from flask_socketio import SocketIO
-from flask_socketio import send,emit
+from flask_socketio import SocketIO,send,emit
 from flask_cors import CORS
 from contract import Contract
     
@@ -26,11 +25,12 @@ import glob
 import base64
 
 from network import Gossip
+from network import KAD
+from network import SocketioClient,PubNamespace,PrvNamespace
 
 import traceback
 import copy
 import globalVar as _global
-
 
 _global._init()
 
@@ -45,6 +45,7 @@ parser.add_argument("--full",action="store_true",help="full sync")
 parser.add_argument("--syncNode",action="store_true",help="if sync overall node")
 parser.add_argument("--debug",action="store_true",help="if debug mode ")
 parser.add_argument("--logging",type=str,choices=["debug","info","warn","error","critical"],default="debug",help="logging level:debug info warn error critical")
+parser.add_argument("--entryKad",default="120.27.137.222:8468",type=str,help="entry node of kad,ip:port")
 args=parser.parse_args()
 
 #make and change work dir use args.me,otherwise use current dir
@@ -96,25 +97,40 @@ log = logger.Logger("miner",args.logging)
 log.registHandler("./miner.log")
 logger.logger = log
 
+app = Flask(__name__)
+CORS(app)
+socketio = SocketIO(app,async_mode="threading")
+
 #make pvkey,pbkey,wallet address  
 mywallet=Wallet(args.name)
+
+#kademlia
+#log.critical("myKAD start")
+#peer=args.entryKad.split(':')
+#myKad = KAD(peer[0],int(peer[1]))
+#myKad.start()
 
 #make node
 node=Node({"host":args.host,
            "port":args.port,
            "entryNode":args.entryNode,
            "me":args.me})
+#gossip
+#log.info("1.node.nodes {}".format(node.nodes))
+#myGossip = Gossip(node.nodes,me)
+#log.info("2.node.nodes {}".format(node.nodes))
                
-app = Flask(__name__)
-CORS(app)
-socketio = SocketIO(app,async_mode="threading")
 #register me and get all alive ndoe list
 if args.syncNode:
   node.syncOverallNodes()
 
-log.info("1.node.nodes {}".format(node.nodes))
-myGossip = Gossip(node.nodes,me)
-log.info("2.node.nodes {}".format(node.nodes))
+if node.entryNode != node.me: 
+  socketioClient=SocketioClient(node.entryNode,PubNamespace,'/pub',node.me)
+  socketioClient.start()
+else:
+  socketioClient=None
+
+node.setSocketio(socketio,socketioClient)
 
 #genesis block ,only first node first time to use 
 localChain = node.syncLocalChain()
@@ -135,6 +151,7 @@ if len(localChain.blocks)==0:
 
 #sync blockchain
 bestIndex = node.syncOverallChain(args.full) 
+log.critical("bestIndex:",bestIndex,"blockchain:",node.blockchain.maxindex())
 
 def blockerProcess():
   prevFileset=[]
@@ -401,6 +418,7 @@ def nodeInfo():
     "peers":peers,
     "me":node.me,
     "entryNode":node.entryNode,
+    "clientsNode":node.clientsNode,
     "wallet.address":mywallet.address,
     "wallet.balance":node.blockchain.utxo.getBalance(mywallet.address),
     "node.isMining":node.isMining,
@@ -540,6 +558,7 @@ def newTrade2(nameFrom,nameTo,amount):
   else:
     return response.get("errText")
 
+#Gossip
 @app.route('/client/<key>/<value>',methods=['GET'])
 def cli(key,value):
   t1=utils.CommonThread(myGossip.cli,(key,value))
@@ -569,25 +588,94 @@ def getValue(key):
   response = myGossip.getValue(key)
   return jsonify(response)
 
-@socketio.on('message')
-def handle_message(message):
-  print('received message:'+message)
-  send("hello "+message)
-  
-@socketio.on('json')
-def handle_json(json):
-  print('received json:'+str(json))
-  send({"a":1,"b":2},json=True)
-  
-@socketio.on('my event')
-def handle_my_eustom_event(json):
-  print('received my event json:'+str(json),type(json))
-  emit('my response',{"x":"abc","y":999})
-  for i in range(100):
-    emit('idx',{"idx":i})
-    emit('idx1',hashlib.sha256(str(i).encode()).hexdigest())
-    time.sleep(0.5)  
+#SocketIO
+@socketio.on('connect',namespace='/pub')
+def socketioConnect():
+  sid = request.sid
+  clientName = request.args.to_dict().get("me")
+  if clientName==None or clientName in node.clientsNode:
+    return False
+  node.clientsNode[clientName]=sid
+  emit('wellcome',clientName,broadcast=True,include_self=False)
+  print("[client {}({}) connected ]".format(clientName,sid))
 
+@socketio.on('disconnect',namespace='/pub')
+def socketioDisconnect():
+  sid = request.sid
+  clientName = request.args.to_dict().get("me")
+  node.clientsNode.pop(clientName)
+  emit('goodbye',clientName,broadcast=True,include_self=False)
+  print("[client {}({}) disconnect]".format(clientName,sid))
+
+@socketio.on('test',namespace='/pub')
+def socketioTest(data):
+  print("recieve:",data)
+  emit('testResponse',data)
+  
+@socketio.on('entryServer',namespace='/pub')
+def socketioEntryServerPub(data):
+  print('3.geted from follower client',data)
+  node.handleData(data)
+    
+  if node.me != data["source"]:  
+    print("4.local client send to entry server")
+    if socketioClient and socketioClient.client:
+      socketioClient.client.emit("entryServer",data,namespace='/pub')
+    else:
+      print("socketioClient is None or socketioClient.client is None")
+    print('5.local server broadcast to follower client')
+    emit("broadcast",data,include_self=False,broadcast=True,namespace='/pub')
+  else:
+    print(node.me,' == ',data["source"])
+
+@socketio.on('localServer',namespace='/prv')
+def socketioEntryServerPrv(data):
+  print('9.geted from my local client',data)
+  node.handleData(data)
+    
+  if node.me != data["source"]:  
+    print('10.local server broadcast to follower client')
+    emit("broadcast",data,include_self=False,broadcast=True,namespace='/pub')
+    emit("localServerResponse","broadcasted!")
+      
+@app.route('/socket/<data>',methods=['GET'])
+def testSocket(data):
+  print("[test socket]")
+  data={"source":node.me,"data":data}
+  print("data:",data)
+  print("1.local client send to entry server")
+  if socketioClient and socketioClient.client:
+    socketioClient.client.emit("entryServer",data,namespace='/pub')
+  else:
+    print("socketioClient is None or socketioClient.client is None")
+  print('2.local server broadcast to follower client')
+  socketio.emit("broadcast",data,namespace='/pub')
+  
+  '''
+  socketioLocal = SocketioClient("127.0.0.1:5000",PubNamespace,'/pub')
+  socketioLocal.listenOnce("entryServer",data,"localServerResponse",lambda arg:print(arg))
+  '''
+  return 'ok'
+  
+#Kademlia
+@app.route('/kad/set/<key>/<value>',methods=['GET'])
+def kadSet(key,value):
+  res = myKad.set(key,value)
+  return str(res)
+
+@app.route('/kad/get/<key>',methods=['GET'])
+def kadGet(key):
+  res = myKad.get(key)
+  if type(res)==str:
+    return res
+  elif type(res)==bytes:
+    return string(pickle.loads(res))
+  
+@app.route('/kad/items',methods=['GET'])
+def kadGetItems():
+  return str(list(myKad.server.storage.items()))
+
+#script
 @app.route('/check/script',methods=['POST'])
 def checkScript():
   script = request.form.get('script',default="")
@@ -597,7 +685,7 @@ def checkScript():
     return result["result"]
   else:
     return result["errText"]
-    
+
 #start program
 if __name__ == '__main__':
   app.config['JSON_SORT_KEYS']=False

@@ -67,7 +67,7 @@ class Logger(object):
       self.logger.error(self.getStack()+"\033[1;31m"+" ".join(str(i) for i in data)+"\033[0m")
   def critical(self,*data):
     if len(data)==1:
-      self.logger.critical(self.getStack()+"\033[1;41m"+str(data[0])+"\033[0m")
+      self.logger.critical(self.getStack()+"\033[1;37;41m"+str(data[0])+"\033[0m")
     else:
-      self.logger.critical(self.getStack()+"\033[1;41m"+" ".join(str(i) for i in data)+"\033[0m")
+      self.logger.critical(self.getStack()+"\033[1;37;41m"+" ".join(str(i) for i in data)+"\033[0m")
 
