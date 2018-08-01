@@ -24,12 +24,12 @@ import pickle
 import traceback
 import globalVar as _global
 
+import pymongo
+
 class Node(object):
   def __init__(self,dict):
     Node.logger = logger.logger
     _global.set("node",self)
-    self.me = dict.get("me")
-    self.entryNode=dict.get("entryNode")
     self.kadServer=dict.get("kadServer")
     self.socketio =None #dict.get("socketio")
     self.socketioClient = None #dict.get("socketioClient")
@@ -41,39 +41,40 @@ class Node(object):
     self.isolatePool=[]
     self.tradeUTXO = None
     self.clientsNode={}
-    #fetch me node 
-    if self.me == None:
-      try:
-        with open(ME_FILE,"r") as f:
-          self.me = f.read()
-      except:
-        raise Exception("if not define --me,you must define it in me file named by ME_FILE")
-    else:
-      with open(ME_FILE,"w") as f:
-        f.write(self.me)
-    #fetch entry node     
-    if self.entryNode == None:
-      try:
-        with open(ENTRYNODE_FILE,"r") as f:
-          self.entryNode = f.read()
-      except:
-        pass
-    else:
-      with open(ENTRYNODE_FILE,"w") as f:
-        f.write(self.entryNode)
     
-    #fetch local peers to load nodes
-    self.nodes=set()
-    self.peersFile=PEERS_FILE
-    try:
-      with open(self.peersFile,"r") as f:
-        items = f.readlines()
-        for item in items:
-          self.nodes.add(item[:-1])
-    except:
-      pass
-    if len(self.nodes)==0:
-      self.nodes.add(self.me)
+    self.me = dict.get("me")
+    self._syncConfigFile("me")
+    
+    self.entryNode=dict.get("entryNode")
+    self._syncConfigFile("entryNode")
+        
+    self.db=dict.get("db")
+    self._syncConfigFile("db")
+    dbhost,other=self.db.split(':')
+    dbport,database=other.split('/')
+    self.dbclient=pymongo.MongoClient(host=dbhost,port=int(dbport))
+    self.database=self.dbclient[database]
+
+    self.peers=None
+    self._syncConfigFile("peers")
+    self.nodes=set(self.peers.split(';'))
+    
+  def _syncConfigFile(self,config):
+    if getattr(self,config) == None:
+      try:
+        with open(config,"r") as f:
+          setattr(self,config,f.read())
+      except:
+        if config in ["me","db","entryNode"]:
+          raise Exception("you must define {} argument use --{}".format(config,config))
+        elif config=="peers":
+          self.peers = self.me
+        else: 
+          pass
+    else:
+      with open(config,"w") as f:
+        f.write(getattr(self,config))
+    
   def setSocketio(self,socketio,socketioClient):
     self.socketio = socketio
     self.socketioClient = socketioClient
@@ -118,9 +119,9 @@ class Node(object):
     return self.nodes
     
   def save(self):
-    with open(self.peersFile,'w') as f:
-      nodes=[item+'\n' for item in self.nodes]
-      f.writelines(nodes)
+    with open("peers",'w') as f:
+      peers=";".join(self.nodes)
+      f.write(peers)
             
   def unregister(self,delNode):
     try:
@@ -595,6 +596,7 @@ class Node(object):
       filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
       with open(filename, 'w') as f:
         utils.obj2jsonFile(block, f, sort_keys=True)
+      self.database["blockchain"].insert(utils.obj2dict(block,sort_keys=True))
       return True
     else:
       return False
@@ -613,6 +615,7 @@ class Node(object):
         filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (TXtimestamp,TXhash)
         with open(filename, 'w') as f:
           utils.obj2jsonFile(TX,f,sort_keys=True)
+        self.database["transaction"].insert(utils.obj2dict(TX,sort_keys=True))
         #handle isolatePool
         isolatePool = copy.copy(self.isolatePool) 
         for isolateTX in isolatePool:
@@ -624,6 +627,7 @@ class Node(object):
             filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (TXtimestamp,TXhash)
             with open(filename, 'w') as f:
               utils.obj2jsonFile(isolateTX,f,sort_keys=True)
+            self.database["transaction"].insert(utils.obj2dict(isolateTX,sort_keys=True))
           else:
             utxoSet = copy.deepcopy(self.isolateUTXO.utxoSet)
       else:

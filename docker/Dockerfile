@@ -35,6 +35,7 @@ RUN echo {presets:[\'env\',\'react\']} > .babelrc
 RUN pip3 install flask-cors pytz
 RUN pip3 install kademlia
 RUN pip3 install socketio-client
+RUN pip3 install pymongo bson
 #RUN npm install react-redux --save
-RUN npm install bizcharts --save
+#RUN npm install bizcharts --save
 WORKDIR /bc

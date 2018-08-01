@@ -1,26 +1,28 @@
 import hashlib
 import math
+import utils
 
-class Leaf:
+class Leaf(object):
   def __init__(self):
     self.value = None
     self.left = None
     self.right = None
 
-class Tree:
+class Tree(object):
   def __init__(self,hashFun="sha256"):
     hashFun = hashFun.lower()
     if hashFun in ["sha256","sha1","sha512","md5"]:
-      self.hashFun = getattr(hashlib,hashFun)
+      self.hashFun = hashFun #getattr(hashlib,hashFun)
     else:
-      self.hashFun = getattr(hashlib,"sha256")
+      self.hashFun = hashFun #getattr(hashlib,"sha256")
     self.root = None
     self.levels=[]
   def addNode(self,left,right,data,hash=False):
+    hashFun = getattr(hashlib,self.hashFun)
     node = Leaf()
     if left==None and right==None:
       if hash:
-        node.value = self.hashFun(data.encode()).hexdigest()
+        node.value = hashFun(data.encode()).hexdigest()
       else:
         node.value = data
     else: 
@@ -30,7 +32,7 @@ class Tree:
       else:
         node.left = left
         node.right = right
-        node.value = self.hashFun((left.value+right.value).encode()).hexdigest()
+        node.value = hashFun((left.value+right.value).encode()).hexdigest()
     return node          
   def makeTree(self,data,hash=False):
     nodes = []
@@ -53,7 +55,11 @@ class Tree:
     self.root = nodes[0]
     return self.root
     
-  def getProof(self, index):
+  def getProof(self, index_targetHash):
+    if type(index_targetHash)=="str":
+      index = self.getIndex(index_targetHash)
+    else:
+      index = index_targetHash
     if self.levels is None:
       return None
     elif index==None or index > len(self.levels[0])-1 or index < 0:
@@ -78,6 +84,7 @@ class Tree:
     except:
       return None 
   def validProof(self, proof, targetHash, merkleRoot):
+    hashFun = getattr(hashlib,self.hashFun)
     if proof==None or len(proof) == 0:
       return targetHash == merkleRoot
     else:
@@ -86,15 +93,16 @@ class Tree:
         try:
           # the sibling is a left node
           sibling = p['left']
-          proofHash = self.hashFun((sibling + proofHash).encode()).hexdigest()
+          proofHash = hashFun((sibling + proofHash).encode()).hexdigest()
         except:
           # the sibling is a right node
           sibling = p['right']
-          proofHash = self.hashFun((proofHash + sibling).encode()).hexdigest()
+          proofHash = hashFun((proofHash + sibling).encode()).hexdigest()
       return proofHash == merkleRoot
             
 if __name__ == "__main__":
   t = Tree("md5")
+  hashFun = getattr(hashlib,t.hashFun)
   t.makeTree([str(i) for i in range(1000)],True)
   '''
   print('*'*10,"merkleRoot",'*'*10)
@@ -113,7 +121,7 @@ if __name__ == "__main__":
     print(t.validProof(proof,t.levels[0][index].value,t.root.value))
   '''
   search='123'
-  value=hashlib.md5(search.encode()).hexdigest()  
+  value=hashFun(search.encode()).hexdigest()  
   index = t.getIndex(value)
   proof = t.getProof(index)
   print('*'*10,"validProof of {}".format(search),'*'*10)

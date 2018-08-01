@@ -46,6 +46,8 @@ parser.add_argument("--syncNode",action="store_true",help="if sync overall node"
 parser.add_argument("--debug",action="store_true",help="if debug mode ")
 parser.add_argument("--logging",type=str,choices=["debug","info","warn","error","critical"],default="debug",help="logging level:debug info warn error critical")
 parser.add_argument("--entryKad",default="120.27.137.222:8468",type=str,help="entry node of kad,ip:port")
+parser.add_argument("--db",type=str,help="db connect,ip:port/db")
+
 args=parser.parse_args()
 
 #make and change work dir use args.me,otherwise use current dir
@@ -54,13 +56,13 @@ os.chdir(ROOT_DIR)
 me=args.me
 if me==None:
   try:
-    with open(ME_FILE,"r") as f:
+    with open("me","r") as f:
       me = f.read()
       args.me=me
   except :
     raise Exception("if not define --me,you must define it in me file named by ME_FILE")
 else:
-  with open(ME_FILE,"w") as f:
+  with open("me","w") as f:
     f.write(me)
 
 try:
@@ -114,7 +116,8 @@ mywallet=Wallet(args.name)
 node=Node({"host":args.host,
            "port":args.port,
            "entryNode":args.entryNode,
-           "me":args.me})
+           "me":args.me,
+           "db":args.db})
 #gossip
 #log.info("1.node.nodes {}".format(node.nodes))
 #myGossip = Gossip(node.nodes,me)
