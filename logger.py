@@ -9,6 +9,7 @@ class Logger(object):
   def __init__(self,name=None,level="NOTSET"):
     ##### set logger #####
     self.logger = logging.getLogger(name)
+    self.logger.propagate=False #避免被第三方logging定义导致重复输出
     level = level.upper() 
     if level=="NOTSET":
       self.logger.setLevel(logging.NOTSET)
@@ -66,6 +67,7 @@ class Logger(object):
     else:
       self.logger.error(self.getStack()+"\033[1;31m"+" ".join(str(i) for i in data)+"\033[0m")
   def critical(self,*data):
+    print(self.logger.handlers)
     if len(data)==1:
       self.logger.critical(self.getStack()+"\033[1;37;41m"+str(data[0])+"\033[0m")
     else:

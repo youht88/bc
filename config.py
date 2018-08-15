@@ -1,4 +1,5 @@
 
+CONFIG_FILE='./config.yaml'
 
 ROOT_DIR='/bc'
 CHAINDATA_DIR = 'chaindata/'

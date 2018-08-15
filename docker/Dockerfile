@@ -11,6 +11,7 @@ RUN pip3 install pycrypto
 RUN apk add curl --no-cache
 RUN apk add nodejs --no-cache
 
+RUN npm config set registry https://registry.npm.taobao.org
 RUN npm init --yes
 RUN npm install webpack webpack-cli --save-dev
 RUN npm install webpack-dev-server  --save-dev
@@ -36,6 +37,7 @@ RUN pip3 install flask-cors pytz
 RUN pip3 install kademlia
 RUN pip3 install socketio-client
 RUN pip3 install pymongo bson
+
 #RUN npm install react-redux --save
 #RUN npm install bizcharts --save
 WORKDIR /bc

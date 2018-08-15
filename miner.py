@@ -17,6 +17,7 @@ from config import *
 import logger
 
 import utils
+import yaml
 
 import string,random,hashlib,time
 
@@ -25,8 +26,6 @@ import glob
 import base64
 
 from network import Gossip
-from network import KAD
-from network import SocketioClient,PubNamespace,PrvNamespace
 
 import traceback
 import copy
@@ -34,47 +33,88 @@ import globalVar as _global
 
 _global._init()
 
+from kademlia import DHT
+
 #args check & use help
 parser=argparse.ArgumentParser()
 parser.add_argument("--entryNode","-e",type=str,help="indicate which node to entry,e.g. ip|host:port ")
 parser.add_argument("--me",type=str,help="indicate who am I,e.g. ip|host:port .Default to search 'me' file")
-parser.add_argument("--host",type=str,default="0.0.0.0",help="default ip is 0.0.0.0")
-parser.add_argument("--port",type=int,default="5000",help="default port is 5000")
+parser.add_argument("--httpServer",type=str,help="default httpServer is 0.0.0.0:5000")
+parser.add_argument("--entryKad",type=str,help="entry node of kad,ip:port")
+parser.add_argument("--db",type=str,help="db connect,ip:port/db")
 parser.add_argument("--name",type=str,help="name of wallet")
 parser.add_argument("--full",action="store_true",help="full sync")
-parser.add_argument("--syncNode",action="store_true",help="if sync overall node")
 parser.add_argument("--debug",action="store_true",help="if debug mode ")
 parser.add_argument("--logging",type=str,choices=["debug","info","warn","error","critical"],default="debug",help="logging level:debug info warn error critical")
-parser.add_argument("--entryKad",default="120.27.137.222:8468",type=str,help="entry node of kad,ip:port")
-parser.add_argument("--db",type=str,help="db connect,ip:port/db")
 
 args=parser.parse_args()
 
 #make and change work dir use args.me,otherwise use current dir
 os.chdir(ROOT_DIR)
 
-me=args.me
-if me==None:
-  try:
-    with open("me","r") as f:
-      me = f.read()
-      args.me=me
-  except :
-    raise Exception("if not define --me,you must define it in me file named by ME_FILE")
-else:
-  with open("me","w") as f:
-    f.write(me)
+def syncConfigFile(args):
+    with open(CONFIG_FILE,"r") as f:
+      config=yaml.load(f.read())
+      if not config:
+        config={}
+      else:
+        config=config.get("blockchain")
+        
+      if args.me:
+        config["me"]=args.me
+      args.me = config.get("me")
+      
+      if args.entryNode:
+        config["entryNode"]=args.entryNode
+      args.entryNode = config.get("entryNode")
+      
+      if args.httpServer:
+        config["httpServer"]=args.httpServer
+      args.httpServer = config.get("httpServer")
+      
+      if args.entryKad:
+        config["entryKad"]=args.entryKad
+      args.entryKad = config.get("entryKad")
+      
+      if args.db:
+        config["db"]=args.db
+      args.db = config.get("db")
+      
+      if args.logging:
+        config["logging"]=args.logging
+      args.logging = config.get("logging")
+      
+      if args.name:
+        config["name"]=args.name
+      args.name = config.get("name")
+      
+      if args.full:
+        config["full"]=args.full
+      args.full = config.get("full")
+
+      if args.debug:
+        config["debug"]=args.debug
+      args.debug = config.get("debug")
+      
+      if not (args.me and args.entryNode and args.entryKad and args.db and args.httpServer):
+        raise Exception("you must define me,entryNode,entryKad,db,httpServer arguments")               
+    with open(CONFIG_FILE,"w") as f:
+      f.write(yaml.dump({"blockchain":config},default_flow_style=False))
+
+#syncConfigFile
+syncConfigFile(args)    
+print(args)
 
 try:
-  os.chdir(me)
+  os.chdir(args.me)
 except:
   try:
-    os.mkdir(me)
-    os.chdir(me)
+    os.mkdir(args.me)
+    os.chdir(args.me)
   except:
     pass
 if args.name==None:
-  args.name=me
+  args.name=args.me
 
 #init
 if not os.path.exists(PRIVATE_DIR):
@@ -102,20 +142,16 @@ logger.logger = log
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app,async_mode="threading")
+#socketioTestClient= SocketIOTestClient(app,socketio,'/prv')
+socketioTestClient=None
 
 #make pvkey,pbkey,wallet address  
 mywallet=Wallet(args.name)
 
-#kademlia
-#log.critical("myKAD start")
-#peer=args.entryKad.split(':')
-#myKad = KAD(peer[0],int(peer[1]))
-#myKad.start()
-
 #make node
-node=Node({"host":args.host,
-           "port":args.port,
+node=Node({"httpServer":args.httpServer,
            "entryNode":args.entryNode,
+           "entryKad":args.entryKad,
            "me":args.me,
            "db":args.db})
 #gossip
@@ -123,17 +159,13 @@ node=Node({"host":args.host,
 #myGossip = Gossip(node.nodes,me)
 #log.info("2.node.nodes {}".format(node.nodes))
                
+#set socketio and socketio_client
+node.setSocketio(socketio,socketioTestClient)
+
+#time.sleep(1) #暂停1秒，因为setSocketio开启线程
+
 #register me and get all alive ndoe list
-if args.syncNode:
-  node.syncOverallNodes()
-
-if node.entryNode != node.me: 
-  socketioClient=SocketioClient(node.entryNode,PubNamespace,'/pub',node.me)
-  socketioClient.start()
-else:
-  socketioClient=None
-
-node.setSocketio(socketio,socketioClient)
+node.syncOverallNodes()
 
 #genesis block ,only first node first time to use 
 localChain = node.syncLocalChain()
@@ -213,24 +245,6 @@ def minerProcess():
 miner = utils.CommonThread(minerProcess,())
 miner.setDaemon(True)
 miner.start()
-
-@app.route('/node/register',methods=['GET'])
-def nodeRegister():
-   newNode=request.values.get("newNode")
-   nodeSet = node.register(newNode)
-   response={
-      'nodes': list(node.nodes)
-   }
-   return jsonify(response),200
-
-@app.route('/node/unregister',methods=['GET'])
-def nodeUnregister():
-   delNode=request.values.get("delNode")
-   nodeSet = node.unregister(delNode)
-   response={
-      'nodes': list(node.nodes)
-   }
-   return jsonify(response),200
 
 
 @app.route('/mined', methods=['POST'])
@@ -411,7 +425,26 @@ def mine():
   #mine
   newBlock=node.mine(coinbase)
   return jsonify(utils.obj2dict(newBlock,indent=2)),200
+
 #node function:list,register,unregister,sync
+@app.route('/node/register',methods=['GET'])
+def nodeRegister():
+   newNode=request.values.get("newNode")
+   nodeSet = node.register(newNode)
+   response={
+      'nodes': list(node.nodes)
+   }
+   return jsonify(response),200
+
+@app.route('/node/unregister',methods=['GET'])
+def nodeUnregister():
+   delNode=request.values.get("delNode")
+   nodeSet = node.unregister(delNode)
+   response={
+      'nodes': list(node.nodes)
+   }
+   return jsonify(response),200
+
 @app.route('/node/info',methods=['GET'])
 def nodeInfo():
   peers=[]
@@ -441,10 +474,7 @@ def nodeList():
 @app.route('/node/sync',methods=['GET'])
 def nodeSync():
   node.syncOverallNodes()
-  response={
-    'nodes': list(node.nodes)
-  }
-  return jsonify(response),200
+  return 'ok',200
 
 @app.route('/',methods=['GET'])
 def default():
@@ -592,6 +622,7 @@ def getValue(key):
   return jsonify(response)
 
 #SocketIO
+
 @socketio.on('connect',namespace='/pub')
 def socketioConnect():
   sid = request.sid
@@ -610,10 +641,36 @@ def socketioDisconnect():
   emit('goodbye',clientName,broadcast=True,include_self=False)
   print("[client {}({}) disconnect]".format(clientName,sid))
 
-@socketio.on('test',namespace='/pub')
+@socketio.on('getNodes',namespace='/pub')
+def socketioGetNodes(data):
+  print("*"*20,"getNodes","*"*20)
+  peers=list(node.nodes)
+  print(peers)
+  emit('getNodesResponse',peers)
+
+@socketio.on('getNodes',namespace='/prv')
+def socketioGetNodesResponse(data):
+  print("*"*20,"getNodes","*"*20)
+  print(data)
+  node.nodes=node.nodes.union(data)
+
+@socketio.on('test','/')
+def socketioTest0(data):
+  print("recieve",data+'0')
+  emit('testResponse',data.upper()+'0')
+  return data[0].upper()+data[1:]+'0'
+
+@socketio.on('test','/pub')
 def socketioTest(data):
-  print("recieve:",data)
-  emit('testResponse',data)
+  print("recieve",data)
+  emit('testResponse',data.upper())
+  return data[0].upper()+data[1:]
+
+@socketio.on('test','/pub1')
+def socketioTest1(data):
+  print("recieve1",data+'1')
+  emit('testResponse',data.upper()+'1')
+  return data[0].upper()+data[1:]+'1'
   
 @socketio.on('entryServer',namespace='/pub')
 def socketioEntryServerPub(data):
@@ -621,9 +678,9 @@ def socketioEntryServerPub(data):
   node.handleData(data)
     
   if node.me != data["source"]:  
-    print("4.local client send to entry server")
-    if socketioClient and socketioClient.client:
-      socketioClient.client.emit("entryServer",data,namespace='/pub')
+    print("4.local client send to entry server!")
+    if node.socketioClient and node.socketioClient.client:
+      node.socketioClient.client.emit("entryServer",data,namespace='/pub')
     else:
       print("socketioClient is None or socketioClient.client is None")
     print('5.local server broadcast to follower client')
@@ -644,39 +701,40 @@ def socketioEntryServerPrv(data):
 @app.route('/socket/<data>',methods=['GET'])
 def testSocket(data):
   print("[test socket]")
-  data={"source":node.me,"data":data}
-  print("data:",data)
-  print("1.local client send to entry server")
-  if socketioClient and socketioClient.client:
-    socketioClient.client.emit("entryServer",data,namespace='/pub')
-  else:
-    print("socketioClient is None or socketioClient.client is None")
-  print('2.local server broadcast to follower client')
-  socketio.emit("broadcast",data,namespace='/pub')
-  
-  '''
-  socketioLocal = SocketioClient("127.0.0.1:5000",PubNamespace,'/pub')
-  socketioLocal.listenOnce("entryServer",data,"localServerResponse",lambda arg:print(arg))
-  '''
+  print(node.socketioClient)
+  print(node.socketioClient.client)
+  node.socketioClient.client.emit('test',data)
   return 'ok'
-  
+
+@socketio.on_error()        # Handles the default namespace
+def error_handler(e):
+    log.critical("on_error",e)
+
+@socketio.on_error('/pub') # handles the '/chat' namespace
+def error_handler_chat(e):
+    log.critical("on_error/pub",e)
+
+@socketio.on_error_default  # handles all namespaces without an explicit error handler
+def default_error_handler(e):
+    log.critical("on_error_default",e)
+      
 #Kademlia
 @app.route('/kad/set/<key>/<value>',methods=['GET'])
 def kadSet(key,value):
-  res = myKad.set(key,value)
-  return str(res)
+  node.dht[key]=value
+  return 'ok'
 
 @app.route('/kad/get/<key>',methods=['GET'])
 def kadGet(key):
-  res = myKad.get(key)
-  if type(res)==str:
-    return res
-  elif type(res)==bytes:
-    return string(pickle.loads(res))
-  
-@app.route('/kad/items',methods=['GET'])
-def kadGetItems():
-  return str(list(myKad.server.storage.items()))
+  res = node.dht[key]
+  return utils.obj2json(res)
+    
+@app.route('/kad/data',methods=['GET'])
+def kadGetdata():
+  return utils.obj2json(node.dht.data)
+@app.route('/kad/buckets',methods=['GET'])
+def kadGetbuckets():
+  return utils.obj2json(node.dht.buckets.buckets)
 
 #script
 @app.route('/check/script',methods=['POST'])
@@ -692,4 +750,5 @@ def checkScript():
 #start program
 if __name__ == '__main__':
   app.config['JSON_SORT_KEYS']=False
-  socketio.run(app,host=node.host, port=node.port,debug=args.debug)
+  host,port = args.httpServer.split(':')
+  socketio.run(app,host=host, port=int(port),debug=args.debug)

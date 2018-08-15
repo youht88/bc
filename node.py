@@ -25,16 +25,41 @@ import traceback
 import globalVar as _global
 
 import pymongo
+from kademlia import DHT
+
+from network import SocketioClient,PubNamespace,PrvNamespace
+
+class ClientNS(PubNamespace):
+  node = None
+  def initialize(self):
+    print("^"*80)
+    self.node = ClientNS.node
+  def on_getNodesResponse(self,*args):
+    print("on_getNodesResponse",args[0])
+    self.node.nodes=self.node.nodes.union(args[0])
+  def on_connect(self,*args):
+    print("[Connected to new server]")
+  def on_disconnect(self):
+    print("[Disconnected from new server]")
+  def on_error(self,*data):
+    print("error:",data)
+  def on_testResponse(self,*args):
+    print("[",args,self.node.entryNode,"]")
+  def on_broadcast(self,*args):
+    #print("6.geted from entry Server",args)
+    print("7.sync from local client to local server")
+    #self.node.socketioTestClient.emit("localServer",args[0])
+    socketioLocal = SocketioClient("127.0.0.1:5000",PrvNamespace,'/prv')
+    socketioLocal.once("localServer",args[0],"localServerResponse",lambda arg:print(arg))
+
 
 class Node(object):
   def __init__(self,dict):
     Node.logger = logger.logger
     _global.set("node",self)
-    self.kadServer=dict.get("kadServer")
     self.socketio =None #dict.get("socketio")
+    self.socketioTestClient = None
     self.socketioClient = None #dict.get("socketioClient")
-    self.host=dict.get("host")
-    self.port=dict.get("port")
     self.isMining=False
     self.isBlockSyncing=False
     self.isolateUTXO=None
@@ -42,44 +67,50 @@ class Node(object):
     self.tradeUTXO = None
     self.clientsNode={}
     
+    self.httpServer = dict.get("httpServer")
     self.me = dict.get("me")
-    self._syncConfigFile("me")
+    self.entryNode = dict.get("entryNode")
+    self.entryKad = dict.get("entryKad")
+    self.db = dict.get("db")
+    self.peers = dict.get("peers")
+
+    kadhost,kadport = self.entryKad.split(':')
+    self.dht = DHT("0.0.0.0",int(kadport),boot_host=kadhost,boot_port=int(kadport))
     
-    self.entryNode=dict.get("entryNode")
-    self._syncConfigFile("entryNode")
-        
-    self.db=dict.get("db")
-    self._syncConfigFile("db")
     dbhost,other=self.db.split(':')
     dbport,database=other.split('/')
     self.dbclient=pymongo.MongoClient(host=dbhost,port=int(dbport))
+    try:
+      # The ismaster command is cheap and does not require auth.
+      self.dbclient.admin.command('ismaster')
+    except:
+      raise("DB Server not available")
     self.database=self.dbclient[database]
 
-    self.peers=None
-    self._syncConfigFile("peers")
+    if not self.peers:
+      self.peers=self.me
     self.nodes=set(self.peers.split(';'))
-    
-  def _syncConfigFile(self,config):
-    if getattr(self,config) == None:
-      try:
-        with open(config,"r") as f:
-          setattr(self,config,f.read())
-      except:
-        if config in ["me","db","entryNode"]:
-          raise Exception("you must define {} argument use --{}".format(config,config))
-        elif config=="peers":
-          self.peers = self.me
-        else: 
-          pass
-    else:
-      with open(config,"w") as f:
-        f.write(getattr(self,config))
-    
-  def setSocketio(self,socketio,socketioClient):
+
+  def setSocketio(self,socketio,socketioTestClient):
     self.socketio = socketio
-    self.socketioClient = socketioClient
+    self.socketioTestClient = socketioTestClient
+    #define self.socketioClient
+    ClientNS.node=self
+    if self.entryNode != self.me: 
+      entryNodes=[self.entryNode]
+      for entryNode in entryNodes:
+        self.socketioClient=SocketioClient(entryNode,ClientNS,'/pub',self.me)
+        self.socketioClient.connect()
+        print('socketioClient.client:',self.socketioClient.client)
+        if self.socketioClient.client:
+          break
+    else:
+      self.socketioClient=None
+    #self.checkNodes()
   def checkNodes(self):
-    utils.warning(time.time(),"mark")
+    if self.socketioClient.client:
+      pass
+      # Node.logger.critical(time.time(),self.socketioClient.client._ping()))
     threading.Timer(60,self.checkNodes).start()
   def getRandom(self,percent):
     #find n% random nodes without me 
@@ -94,7 +125,19 @@ class Node(object):
     nodes = random.sample(nodes,cnt)  
     return nodes
     
-  def syncOverallNodes(self):
+  def syncOverallNodes(self):    
+    def fun(*data):
+      print("!!",data,self.me)
+    Node.logger.debug("step one: get entryNode's nodes")
+    if self.socketioClient and self.socketioClient.client:
+      self.socketioClient.emit('test','hello',callback=fun) 
+      self.socketioClient.emit("getNodes",{},)
+    Node.logger.debug("step two: broadcase self.me")
+    data={"source":self.me,"type":"registeNode","value":self.me}
+    Node.logger.info("register node {}".format(self.me))
+    self.broadcast(data)
+    return
+    ''' **** obsolete method ******
     #self.checkNodes()
     doneNodes=self.nodes
     todoNodes=set()
@@ -112,7 +155,7 @@ class Node(object):
       self.nodes =  doneNodes 
       Node.logger.info("nodes:{}".format(doneNodes))
       self.save()
-    
+     '''
   def register(self,newNode):
     self.nodes.add(newNode)
     self.save()
@@ -321,6 +364,7 @@ class Node(object):
         try:
           os.remove(txFile)
           Node.logger.warn("del:{}".format(txFile))
+          self.database["transaction"].remove({"hash":TX.hash})
         except:
           Node.logger.warn("del file not found:{}".format(txFile))
           pass
@@ -640,7 +684,7 @@ class Node(object):
 
   def broadcast(self,data):
     if self.socketioClient and self.socketioClient.client:
-      self.socketioClient.client.emit("entryServer",data,namespace='/pub')
+      self.socketioClient.emit("entryServer",data)
     #print('2.local server broadcast to follower client')
     self.socketio.emit("broadcast",data,namespace='/pub')
 
@@ -649,6 +693,8 @@ class Node(object):
       self.mined(data.get("value"))
     elif data.get("type")=="newTX":
       self.transacted(data.get("value"))
+    elif data.get("type")=="registeNode":
+      self.register(data.get("value"))
     elif data.get("type")=="setKV":
       pass
     elif data.get("type")=="getKV":

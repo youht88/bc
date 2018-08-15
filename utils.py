@@ -201,10 +201,19 @@ class CommonThread(threading.Thread):
    super(CommonThread,self).__init__()        
    self.func  = func
    self.args  = args
+   self.result = None
   def run(self):
     self.result = self.func(*self.args)
   def setEvent(self,event):
     self.event = event
+  def eventSet(self):
+    self.event.set()
+  def eventClear(self):
+    self.event.clear()
+  @property
+  def eventIsSet(self):
+    return self.event.isSet()
+  
   def getResult(self):
     return self.result
 
@@ -214,6 +223,7 @@ class CommonProcess(multiprocessing.Process):
     self.func  = func
     self.event = event
     self.args  = args
+    self.result = None
   def run(self):
     self.result = self.func(*self.args)
   def setEvent(self,event):

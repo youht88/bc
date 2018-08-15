@@ -1,0 +1,7 @@
+blockchain:
+  db: 192.168.31.119:27017/3b1
+  entryKad: 120.27.137.222:3000
+  entryNode: 192.168.31.124:5000
+  httpServer: 0.0.0.0:5000
+  logging: debug
+  me: 3b1_bc.youht.cc:8084
