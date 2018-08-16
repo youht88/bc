@@ -3,43 +3,66 @@ from config import *
 import utils,os,hashlib,base64
 import logger
 
+import globalVar as _global
+
 class Wallet(object):
-  def __init__(self,name):
+  def __init__(self,name=None):
     Wallet.logger = logger.logger
-    try:
-      os.mkdir("%s%s"%(PRIVATE_DIR,name))
-    except:
-      pass
-    if not os.path.exists("%s%s/pubkey.pem"%(PRIVATE_DIR,name)):
-      self.key=(prvkey,pubkey)=utils.genRSAKey(
-             "%s%s/prvkey.pem"%(PRIVATE_DIR,name),
-             "%s%s/pubkey.pem"%(PRIVATE_DIR,name))
-      self.pubkey64D=base64.b64encode(pubkey).decode()
-      self.address=utils.sha256(pubkey)
-      with open("%s%s/%s"%(PRIVATE_DIR,name,self.address),"w") as f:
-        pass
-    else:
-      try:
-        with open("%s%s/prvkey.pem"%(PRIVATE_DIR,name),"rb") as f:
-          prvkey = f.read()
-      except:
-        prvkey=None
-      with open("%s%s/pubkey.pem"%(PRIVATE_DIR,name),"rb") as f:
-        pubkey = f.read()
-      if prvkey:
-        self.key=(prvkey,pubkey)=(prvkey,pubkey)
-      else:
-        self.key=(None,pubkey)
-          
+    Wallet.database = _global.get("database")
+    if name:
+      self.chooseByName(name)
+  def chooseByName(self,name):
+    accounts=Wallet.database["wallet"].find({"name":name})
+    found=False
+    for i,account in enumerate(accounts):
+      if i>0:  
+        raise Exception("multi account named {}".format(name))
+      found = True
+      self.name = name
+      self.key=(account.get("prvkey"),account.get("pubkey"))
       self.pubkey64D=base64.b64encode(self.key[1]).decode()
-      self.address=Wallet.address(pubkey)
-      if not os.path.exists("%s%s/%s"%(PRIVATE_DIR,name,self.address)):
-        Wallet.logger.warn("warning : wallet address is changed excepted!")
+      self.address=account.get("address")
+    if not found:
+      raise Exception("no such account,use function create('{}') first.".format(name))
+
+  def chooseByAddress(self,address):
+    accounts=Wallet.database["wallet"].find({"address":address})
+    found=False
+    for i,account in enumerate(accounts):
+      if i>0:  
+        raise Exception("multi account addressed {}".format(address))
+      found = True
+      self.name = account.get("name")
+      self.key=(account.get("prvkey"),account.get("pubkey"))
+      self.pubkey64D=base64.b64encode(self.key[1]).decode()
+      self.address=address
+    if not found:
+      raise Exception("no such account,use create() first.")
+
+  def deleteByName(name):
+    Wallet.database["wallet"].remove({"name":name})
+    
+  def deleteByAddress(cls,address):
+    Wallet.database["wallet"].remove({"address":address})
+  
+  def create(self,name):
+    key=(prvkey,pubkey)=utils.genRSAKey("","")
+    address=utils.sha256(pubkey)
+    Wallet.database["wallet"].insert(
+         {"name":name,"address":address,"pubkey":pubkey,"prvkey":prvkey})
+    self.name = name
+    self.address = address
+    self.key = key
+    self.pubkey64D = base64.b64encode(self.key[1]).decode()
+
+  @property
+  def isPrivate(self):
+    return self.prvkey!=None 
+
   @staticmethod
   def address(pubkey):
     return utils.sha256(pubkey)
-
-
+  
    
 
         

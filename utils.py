@@ -23,14 +23,15 @@ def genRSAKey(prvfile="private.pem",pubfile="public.pem"):
 
   private_pem = rsa.exportKey()
   
-  with open(prvfile,'wb') as f:
-    f.write(private_pem)
+  if not prvfile=="":
+    with open(prvfile,'wb') as f:
+      f.write(private_pem)
 
   public_pem=rsa.publickey().exportKey()
   
-  #print('\033[1;31;47mpublic_pem:\033[0m',public_pem)
-  with open(pubfile,'wb') as f:
-    f.write(public_pem)
+  if not pubfile=="":
+    with open(pubfile,'wb') as f:
+      f.write(public_pem)
   
   return (private_pem,public_pem)
     

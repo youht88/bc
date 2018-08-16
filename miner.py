@@ -1,3 +1,6 @@
+import globalVar as _global
+_global._init()
+
 from wallet import Wallet
 from node import Node
 from block import Block
@@ -29,9 +32,6 @@ from network import Gossip
 
 import traceback
 import copy
-import globalVar as _global
-
-_global._init()
 
 from kademlia import DHT
 
@@ -126,14 +126,6 @@ if not os.path.exists(UTXO_DIR):
 if not os.path.exists(BROADCASTED_BLOCK_DIR):
   os.makedirs(BROADCASTED_BLOCK_DIR)
 
-#clear transactionPool
-try:
-  shutil.rmtree("%s"%(BROADCASTED_TRANSACTION_DIR))
-except:
-  pass
-if not os.path.exists(BROADCASTED_TRANSACTION_DIR):
-  os.makedirs(BROADCASTED_TRANSACTION_DIR)
-
 #set logger
 log = logger.Logger("miner",args.logging)
 log.registHandler("./miner.log")
@@ -145,15 +137,20 @@ socketio = SocketIO(app,async_mode="threading")
 #socketioTestClient= SocketIOTestClient(app,socketio,'/prv')
 socketioTestClient=None
 
-#make pvkey,pbkey,wallet address  
-mywallet=Wallet(args.name)
-
 #make node
 node=Node({"httpServer":args.httpServer,
            "entryNode":args.entryNode,
            "entryKad":args.entryKad,
            "me":args.me,
            "db":args.db})
+
+#make pvkey,pbkey,wallet address  
+try:
+  mywallet = Wallet()
+  mywallet.chooseByName(args.name)
+except:
+  mywallet.create(args.name)
+
 #gossip
 #log.info("1.node.nodes {}".format(node.nodes))
 #myGossip = Gossip(node.nodes,me)
@@ -166,6 +163,9 @@ node.setSocketio(socketio,socketioTestClient)
 
 #register me and get all alive ndoe list
 node.syncOverallNodes()
+
+#clear transaction
+node.clearTransaction()
 
 #genesis block ,only first node first time to use 
 localChain = node.syncLocalChain()
@@ -190,6 +190,7 @@ log.critical("bestIndex:",bestIndex,"blockchain:",node.blockchain.maxindex())
 
 def blockerProcess():
   prevFileset=[]
+  prevHashs=[]
   while True:
     if args.debug and len(threading.enumerate())!=4: #debug调试时使用
       continue
@@ -199,11 +200,9 @@ def blockerProcess():
     node.isBlockSyncing=True
     try:
       maxindex = node.blockchain.maxindex()
-      fileset=glob.glob(os.path.join(BROADCASTED_BLOCK_DIR, '*.json'))
-      #fileset=list(filter(lambda x:int(x.split('_')[0])>maxindex,[os.path.basename(f) for f in fileset]))
-      fileset=[os.path.basename(f) for f in fileset]
-      if len(fileset)>=1 and fileset!=prevFileset: #与上一次files集合不同
-        prevFileset = fileset
+      hashs = [item["hash"] for item in node.database["blockpool"].find({},{"_id":False,"hash":True})]
+      if len(hashs) >=1 and hashs != prevHashs:
+        prevHashs = hashs
         node.blockPoolSync()
     except Exception as e:
       log.critical(traceback.format_exc())
@@ -228,15 +227,12 @@ def minerProcess():
       continue
     node.isMining=True
     try:
-      txPoolFiles=glob.glob(
-         os.path.join(BROADCASTED_TRANSACTION_DIR, '*.json'))
-      if len(txPoolFiles)>=TRANSACTION_TO_BLOCK:
-        log.info('the arg is:%s,%s\r' % (len(txPoolFiles),time.time()))
+      txPoolCount = node.database["transaction"].count()
+      if txPoolCount >= TRANSACTION_TO_BLOCK: 
         t1=Transaction.newCoinbase(mywallet.address)
         coinbase=utils.obj2dict(t1)
         #mine
         newBlock=node.mine(coinbase)
-      #print("txPool=",len(txPoolFiles))
     except Exception as e:
       log.critical(traceback.format_exc())
     node.isMining=False
@@ -245,63 +241,6 @@ def minerProcess():
 miner = utils.CommonThread(minerProcess,())
 miner.setDaemon(True)
 miner.start()
-
-
-@app.route('/mined', methods=['POST'])
-def mined():
-  possible_block_data = request.get_json()
-  #validate possible_block
-  possible_block = Block(possible_block_data)
-  log.info("recieve block index {}-{}".format(possible_block.index,possible_block.nonce))
-  if possible_block.isValid():
-    #save to file to possible folder
-    index = possible_block.index
-    nonce = possible_block.nonce
-    filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
-    with open(filename, 'w') as block_file:
-      utils.obj2jsonFile(possible_block, block_file,sort_keys=True)
-    return jsonify(confirmed=True)
-  else:
-    #ditch it
-    return jsonify(confirmed=False)
-
-@app.route('/transacted', methods=['POST'])
-def transacted():
-  txDict = request.get_json()
-  #validate possible_block
-  TX = Transaction.parseTransaction(txDict)
-  log.info("recieve transaction {}".format(TX.hash))
-  if TX.isValid():
-    utxoSet = copy.deepcopy(node.isolateUTXO.utxoSet)
-    #log.critical("1",utxoSet)
-    if node.isolateUTXO.updateWithTX(TX,utxoSet):
-      node.isolateUTXO.utxoSet = utxoSet
-      #save to file to transaction pool
-      TXhash = TX.hash
-      TXtimestamp = TX.timestamp
-      filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (TXtimestamp,TXhash)
-      with open(filename, 'w') as f:
-        utils.obj2jsonFile(TX,f,sort_keys=True)
-      #handle isolatePool
-      isolatePool = copy.copy(node.isolatePool) 
-      for isolateTX in isolatePool:
-        if node.isolateUTXO.updateWithTX(isolateTX,utxoSet):
-          node.isolatePool.remove(isolateTX)
-          #save to file to transaction pool
-          TXhash = isolateTX.hash
-          TXtimestamp = isolateTX.timestamp
-          filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (TXtimestamp,TXhash)
-          with open(filename, 'w') as f:
-            utils.obj2jsonFile(isolateTX,f,sort_keys=True)
-        else:
-          utxoSet = copy.deepcopy(node.isolateUTXO.utxoSet)
-    else:
-      node.isolatePool.append(TX)
-    return jsonify(confirmed=True)
-  else:
-    #ditch it
-    utils.warning("transaction is not valid,hash is:",TX.hash)
-    return jsonify(confirmed=False)
 
 @app.route('/getStatus',methods=['GET'])
 def getStatus():
@@ -333,7 +272,11 @@ def getBlockchainMaxindex():
 
 @app.errorhandler(404)
 def not_found(error):
-    return make_response(jsonify({'error': 'Not found this url'}), 404)
+  return make_response(jsonify({'error': 'Not found this url'}), 404)
+@app.errorhandler(500)
+def internet_server_error(error):
+  log.critical("error500",error)
+  return make_response(jsonify({'error': 'internet server error','msg':str(error)}), 500)
 
 #test url
 @app.route('/blockchain/index/<int:blockIndex>/',methods=['GET'])
@@ -349,15 +292,13 @@ def getBlockByHash(blockHash):
 @app.route('/blockchain/get/<string:peer>/<int:index>/',methods=['GET'])
 def getRemoteBlocks(peer,index):
   result=node.httpProcess("http://"+peer+"/blockchain/index/"+str(index))
+  print(result,result["response"])
   blocksDict=result["response"].json()
   if blocksDict:
     block = Block(blocksDict[0])
     if block.isValid():
       #save to file to possible folder
-      nonce = block.nonce
-      filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
-      with open(filename, 'w') as f:
-        utils.obj2jsonFile(block,f,sort_keys=True)
+      node.database["blockpool"].update({"hash":block.hash},{"$set":utils.obj2dict(block,sort_keys=True)},upsert=True)
     return jsonify(utils.obj2dict(block))
   else:
     return "no index {} from peer {}".format(index,peer) 
@@ -504,34 +445,36 @@ def testHash():
 
 @app.route('/wallet/me',methods=['GET'])
 def getwallet():
-  wallet = Wallet(me)
-  balance = node.blockchain.utxo.getBalance(wallet.address)
-  response = {"address":wallet.address,
-              "pubkey":wallet.pubkey64D,
+  balance = node.blockchain.utxo.getBalance(mywallet.address)
+  response = {"address":mywallet.address,
+              "pubkey":mywallet.pubkey64D,
               "balance":balance}
   return jsonify(response)
 
 @app.route('/wallet/<string:address>/',methods=['GET'])
 def getBalance(address):
+  wallet=Wallet()
   if len(address)==64:
-    balance = node.blockchain.utxo.getBalance(address)
-    return jsonify({"address":address,"blance":balance})
+    wallet.chooseByAddress(address)
   else:
     wallet = Wallet(address)
-    balance = node.blockchain.utxo.getBalance(wallet.address)
-    return jsonify({"address":wallet.address,"pubkey":wallet.pubkey64D,"blance":balance})
+  balance = node.blockchain.utxo.getBalance(wallet.address)
+  return jsonify({"address":wallet.address,"pubkey":wallet.pubkey64D,"blance":balance})
+
 @app.route('/wallet/getAddress/<string:name>',methods=['GET'])
 def getAddress(name):
   if name=='me':
-    name=me
+    name=node.me
   wallet = Wallet(name)
   return wallet.address
+
 @app.route('/wallet/create/<string:name>',methods=['GET'])
 def createwallet(name):
   if name=='me':
-    wallet = Wallet(me)
+    wallet = Wallet(node.me)
   else:
-    wallet = Wallet(name)
+    wallet = Wallet()
+    wallet.create(name)
   balance = node.blockchain.utxo.getBalance(wallet.address)
   response = {"address":wallet.address,
               "pubkey":wallet.pubkey64D,
@@ -541,25 +484,19 @@ def createwallet(name):
 @app.route('/wallet/get/<string:peer>/<name>',methods=['GET'])
 def syncwallet(peer,name):
   result=node.httpProcess("http://"+peer+"/wallet/"+name)
+  #print(result)
   if name=='me':
     name=peer
-  dict=result["response"].json()
-  if "address" in dict:
-    address = dict["address"]
-    pubkey64D = dict["pubkey"]
-    try:
-      os.mkdir("%s%s"%(PRIVATE_DIR,name))
-    except:
-      shutil.rmtree("%s%s"%(PRIVATE_DIR,name))
-      os.mkdir("%s%s"%(PRIVATE_DIR,name))
-    try:
-      with open("%s%s/%s"%(PRIVATE_DIR,name,address),"w") as f:
-        pass
-      with open("%s%s/pubkey.pem"%(PRIVATE_DIR,name),"wb") as f:
-        f.write(base64.b64decode(pubkey64D.encode()))
-    except Exception as e:
-      raise e
-      return "error on wallet/reset/"+name
+  try:
+    dict=result["response"].json()
+    if "address" in dict:
+      address = dict["address"]
+      pubkey64D = dict["pubkey"]
+      pubkey = base64.b64decode(pubkey64D.encode())
+      node.database["wallet"].update({"address":address},{"$set":{"name":name,"address":address,"pubkey":pubkey,"prvkey":None}},upsert=True)
+  except Exception as e:
+    raise e
+    return "error on wallet/reset/"+name
   return jsonify(dict)
 
 @app.route('/wallet/get/peers',methods=['GET'])
@@ -571,6 +508,7 @@ def getPeersWallet():
       node.httpProcess("http://{}/wallet/get/{}/me".format(node.me,peer),timeout=3,
           cb=printUrl)
   return 'ok'
+  
 @app.route('/trade/<nameFrom>/<nameTo>/<amount>',methods=['POST'])
 def newTrade1(nameFrom,nameTo,amount):
   script = request.form.get('script',default="")

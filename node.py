@@ -86,8 +86,13 @@ class Node(object):
     except:
       raise("DB Server not available")
     self.database=self.dbclient[database]
-
-    if not self.peers:
+    _global.set("database",self.database)
+    Node.logger.info("database had been set",self.database)
+    
+    try:
+      with open(PEERS_FILE,'r') as f:
+        self.peers=f.read()
+    except:
       self.peers=self.me
     self.nodes=set(self.peers.split(';'))
 
@@ -136,6 +141,7 @@ class Node(object):
     data={"source":self.me,"type":"registeNode","value":self.me}
     Node.logger.info("register node {}".format(self.me))
     self.broadcast(data)
+    self.save()
     return
     ''' **** obsolete method ******
     #self.checkNodes()
@@ -174,23 +180,15 @@ class Node(object):
       pass
     return self.nodes
     
+  #clear transaction on node start
+  def clearTransaction(self):
+    self.database["transaction"].remove({})  
   #sync nodes,chain,blocks,transactions
   def syncLocalChain(self):
     localChain = Chain([])
-    #We're assuming that the folder and at least initial block exists
-    if os.path.exists(CHAINDATA_DIR):
-      fileset=glob.glob(
-         os.path.join(CHAINDATA_DIR, '*.json'))
-      fileset.sort()
-      for filepath in fileset:
-        with open(filepath, 'r') as blockFile:
-          try:
-            blockDict = json.load(blockFile)
-          except:
-            Node.logger.error(filepath+" error!")
-            return localChain
-          localBlock = Block(blockDict)
-          localChain.addBlock(localBlock)
+    for block in self.database["blockchain"].find({},{"_id":0}).sort([("index",1)]):
+      localBlock=Block(block)
+      localChain.addBlock(localBlock)
     return localChain
 
   def httpProcess(self,url,timeout=3,cb=None,cbArgs=None):
@@ -339,78 +337,53 @@ class Node(object):
       return False
   def txPoolSync(self):
     txPool=[]
-    #We're assuming that the folder and at least initial block exists
-    if os.path.exists(BROADCASTED_TRANSACTION_DIR):
-      fileset=glob.glob(
-         os.path.join(BROADCASTED_TRANSACTION_DIR, '*.json'))
-      fileset.sort()
-      for filepath in fileset:
-        with open(filepath, 'r') as txFile:
-          try:
-            txPoolDict = json.load(txFile)
-          except:
-            Node.logger.error("error on:{}".format(filepath))
-          txPool.append(
-            Transaction.parseTransaction(txPoolDict))
+    for txDict in self.database["transaction"].find({},{"_id":0}).sort([("timestamp",1)]):
+      txPool.append(Transaction.parseTransaction(txDict))
     return txPool
   def txPoolRemove(self,block):
-    #remove transactions in txPool
+    #remove transactions from txPool
     if block:
       for TX in block.data:
         if TX.isCoinbase():
           continue
-        f = str(TX.timestamp)+"_"+TX.hash+".json"
-        txFile= os.path.join(BROADCASTED_TRANSACTION_DIR,f)
-        try:
-          os.remove(txFile)
-          Node.logger.warn("del:{}".format(txFile))
-          self.database["transaction"].remove({"hash":TX.hash})
-        except:
-          Node.logger.warn("del file not found:{}".format(txFile))
-          pass
+        self.database["transaction"].remove({"hash":TX.hash})
+      
   def blockPoolSync(self):
     maxindex = self.blockchain.maxindex()
     Node.logger.info("is BlockSyning {} from pool".format(maxindex+1))
-    if os.path.exists(BROADCASTED_BLOCK_DIR):
-      fileset=glob.glob(
-         os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(maxindex+1)))
-      for filepath in fileset:
-      #if fileset:
-        #filepath = fileset[0]
-        with open(filepath, 'r') as blockFile:
-          try:
-            blockDict = json.load(blockFile)
-            block = Block(blockDict)
-            if block.isValid():
-              Node.logger.debug("syncblock0.current maxindex {}".format(self.blockchain.maxindex()))
-              if self.blockchain.addBlock(block):
-                if block.index==0:
-                  doutxo = self.resetUTXO()
-                else:
-                  doutxo = self.updateUTXO(block)
-                Node.logger.debug("syncblock1.after update utxo {},and this fun is {}".format(self.blockchain.utxo.getSummary(),doutxo))
-                if doutxo:
-                  Node.logger.debug("syncblock2. txPoolRemove".format(block.index))
-                  self.txPoolRemove(block)
-                  Node.logger.debug("syncblock3.block.save")
-                  block.save()
-                  Node.logger.debug("syncblock4.remove file {}".format(filepath))
-                  block.removeFromPool()
-                  Node.logger.debug("syncblock5.current maxindex {}".format(self.blockchain.maxindex()))
-                  break
-                else:
-                  self.blockchain.blocks.pop() #del added block just moment
-                  if self.resolveFork(block):
-                    break
-              else:
-                if self.resolveFork(block):
-                  break
-          except Exception as e:
-            Node.logger.critical(traceback.format_exc())
-            Node.logger.error("error on:{}".format(filepath))
-          finally:
-            lastblock = self.blockchain.lastblock()
-            Node.logger.info("current blockchain high:{}-{}".format(lastblock.index,lastblock.nonce))
+    for blockDict in self.database["blockpool"].find({"index":maxindex+1},{"_id":0}):
+      try:
+        block = Block(blockDict)
+        if block.isValid():
+          Node.logger.debug("syncblock0.current maxindex {}".format(self.blockchain.maxindex()))
+          if self.blockchain.addBlock(block):
+            if block.index==0:
+              doutxo = self.resetUTXO()
+            else:
+              doutxo = self.updateUTXO(block)
+            Node.logger.debug("syncblock1.after update utxo {},and this fun is {}".format(self.blockchain.utxo.getSummary(),doutxo))
+            if doutxo:
+              Node.logger.debug("syncblock2. txPoolRemove".format(block.index))
+              self.txPoolRemove(block)
+              Node.logger.debug("syncblock3.block.save")
+              block.save()
+              Node.logger.debug("syncblock4.remove pool block {}".format(block.index))
+              block.removeFromPool()
+              Node.logger.debug("syncblock5.current maxindex {}".format(self.blockchain.maxindex()))
+              break
+            else:
+              self.blockchain.blocks.pop() #del added block just moment
+              if self.resolveFork(block):
+                break
+          else:
+            if self.resolveFork(block):
+              break
+      except Exception as e:
+        Node.logger.critical(traceback.format_exc())
+        #Node.logger.error("error on:{}".format(filepath))
+      finally:
+        lastblock = self.blockchain.lastblock()
+        Node.logger.info("current blockchain high:{}-{}".format(lastblock.index,lastblock.nonce))
     Node.logger.info("end blocksync")
   def resolveFork(self,forkBlock):
     blocks=[forkBlock]
@@ -418,8 +391,7 @@ class Node(object):
     Node.logger.info("fork0.begin resolveFork,fork is {}-{}".format(blocks[0].index,blocks[0].nonce))
     while True :
       fork=blocks[-1]
-      fileset=glob.glob(
-           os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(index)))
+      fileset = [item for item in self.database["blockpool"].find({"index":index},{"_id":0})]
       i=-1
       if len(fileset)==0:
         Node.logger.info("not find prev block #{} in blockPool".format(index))
@@ -428,58 +400,57 @@ class Node(object):
         utils.CommonThread(self.httpProcess,(url))
         break
       recursion=False
-      for i,filepath in enumerate(fileset):
-        with open(filepath,'r') as blockFile:
-          block = Block(json.load(blockFile))
-          Node.logger.info("fork1.poolblock {}-{} isValid?".format(block.index,block.nonce))  
-          if block.isValid():
-            Node.logger.info("fork2.forkblock({}-{}) can link poolblock({}-{})?".format(fork.index,fork.nonce,block.index,block.nonce))
-            if fork.prev_hash != block.hash:
-              continue
-            if index>0:
-              Node.logger.critical(index,block.index,'-',block.nonce)
-              Node.logger.info("fork3.poolblock({}-{}) can link blockchain({}-{})?".format(block.index,block.nonce,self.blockchain.findBlockByIndex(index - 1).index,self.blockchain.findBlockByIndex(index - 1).nonce))
-            else:
-              Node.logger.info("fork3.poolblock({}-{}) isGenesisblock?".format(block.index,block.nonce,index))
-            blocks.append(block) 
-            if index==0 or block.prev_hash == self.blockchain.findBlockByIndex(index - 1).hash:
-              #done,replace blocks in blockchain,move correspondent into blockPool
-              Node.logger.info("forkstep1> move correspondent into blockPool")
-              index = block.index - 1
+      for i,blockDict in enumerate(fileset):
+        block = Block(blockDict)
+        Node.logger.info("fork1.poolblock {}-{} isValid?".format(block.index,block.nonce))  
+        if block.isValid():
+          Node.logger.info("fork2.forkblock({}-{}) can link poolblock({}-{})?".format(fork.index,fork.nonce,block.index,block.nonce))
+          if fork.prev_hash != block.hash:
+            continue
+          if index>0:
+            Node.logger.critical(index,block.index,'-',block.nonce)
+            Node.logger.info("fork3.poolblock({}-{}) can link blockchain({}-{})?".format(block.index,block.nonce,self.blockchain.findBlockByIndex(index - 1).index,self.blockchain.findBlockByIndex(index - 1).nonce))
+          else:
+            Node.logger.info("fork3.poolblock({}-{}) isGenesisblock?".format(block.index,block.nonce,index))
+          blocks.append(block) 
+          if index==0 or block.prev_hash == self.blockchain.findBlockByIndex(index - 1).hash:
+            #done,replace blocks in blockchain,move correspondent into blockPool
+            Node.logger.info("forkstep1> move correspondent into blockPool")
+            index = block.index - 1
+            
+            for b in blocks[1:]:
+              idx = b.index
+              Node.logger.debug("fork6.moveBlockToPool {}-{}".format(idx,self.blockchain.blocks[idx].nonce))
+              self.blockchain.moveBlockToPool(idx) 
               
-              for b in blocks[1:]:
-                idx = b.index
-                Node.logger.debug("fork6.moveBlockToPool {}-{}".format(idx,self.blockchain.blocks[idx].nonce))
-                self.blockchain.moveBlockToPool(idx) 
-                
-              Node.logger.info("forkstep2> add new blocks")
-              blocks.reverse()
-              for b in blocks:
-                Node.logger.info("fork8.addblock {}-{}".format(b.index,b.nonce))
-                if self.blockchain.addBlock(b):
-                  Node.logger.info("fork9.UTXO")
-                  if b.index==0:
-                    doutxo=self.resetUTXO()
-                  else:
-                    doutxo=self.updateUTXO(b)
-                  if doutxo:
-                    Node.logger.info("fork10.txPoolRemove")
-                    self.txPoolRemove(b)
-                    Node.logger.info("fork11.save")
-                    b.save()
-                    Node.logger.info("fork12.removeFromPool")
-                    b.removeFromPool()
-                    Node.logger.info("fork13.next")
-                  else:
-                    Node.logger.info("utxo error!")
-                    self.blockchain.blocks.pop()
-                    return True
-              return True
-            else:
-              index = block.index - 1 
-              Node.logger.info("fork4.nextblock {}".format(index))
-              recursion=True
-              break
+            Node.logger.info("forkstep2> add new blocks")
+            blocks.reverse()
+            for b in blocks:
+              Node.logger.info("fork8.addblock {}-{}".format(b.index,b.nonce))
+              if self.blockchain.addBlock(b):
+                Node.logger.info("fork9.UTXO")
+                if b.index==0:
+                  doutxo=self.resetUTXO()
+                else:
+                  doutxo=self.updateUTXO(b)
+                if doutxo:
+                  Node.logger.info("fork10.txPoolRemove")
+                  self.txPoolRemove(b)
+                  Node.logger.info("fork11.save")
+                  b.save()
+                  Node.logger.info("fork12.removeFromPool")
+                  b.removeFromPool()
+                  Node.logger.info("fork13.next")
+                else:
+                  Node.logger.info("utxo error!")
+                  self.blockchain.blocks.pop()
+                  return True
+            return True
+          else:
+            index = block.index - 1 
+            Node.logger.info("fork4.nextblock {}".format(index))
+            recursion=True
+            break
       if i==len(fileset) - 1 and not recursion:
         Node.logger.info("fork14.find prev block in blockPool,but none can link fork block or can link main chain")
         if index==0:
@@ -580,24 +551,8 @@ class Node(object):
     #push to blockPool
     self.mined(blockDict)
     
-    #broadcast to peers
-    '''
-    #this way is use http with self.nodes loop.It may be not efficiency
-    for peer in self.nodes:
-      if peer == self.me:
-        continue
-      try:
-        res = requests.post("http://%s/mined"%peer,
-                            json=blockDict,timeout=10)
-      except Exception as e:
-        Node.logger.error("%s error is %s"%(peer,e))  
-      else:
-        Node.logger.info("%s_%s success send to %s"%(index,nonce,peer))
-    '''
-    #new way use socketio to broacdcast 
-    #print("1.local client send to entry server")
     data = {"source":self.me,"type":"newBlock","value":blockDict}
-    Node.logger.info("broadcast block {}-{}".format(index,nonce))
+    Node.logger.info("broadcast block {}-{}".format(newBlock.index,newBlock.nonce))
     self.broadcast(data)
       
     Node.logger.info("mine广播完成")
@@ -617,10 +572,10 @@ class Node(object):
       #if not genesis and blockchain had updated by other node's block then stop
       if newBlock.index!=0: 
         #if self.blockchain.maxindex() >= newBlock.index:
-        fileset=glob.glob(
-         os.path.join(BROADCASTED_BLOCK_DIR, '%i_*.json'%(newBlock.index)))
-        if len(fileset)>=1:
-          return None
+        haveBlock=self.database["blockpool"].find_one({"index":newBlock.index},{"_id":1})
+        if haveBlock:
+          return Node
+
       newBlock.nonce += 1
       newBlock.updateHash()
       
@@ -635,12 +590,7 @@ class Node(object):
     Node.logger.info("recieve block index {}-{}".format(block.index,block.nonce))
     if block.isValid():
       #save to file to possible folder
-      index = block.index
-      nonce = block.nonce
-      filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
-      with open(filename, 'w') as f:
-        utils.obj2jsonFile(block, f, sort_keys=True)
-      self.database["blockchain"].insert(utils.obj2dict(block,sort_keys=True))
+      self.database["blockpool"].update({"hash":block.hash},{"$set":utils.obj2dict(block,sort_keys=True)},upsert=True)
       return True
     else:
       return False
@@ -654,24 +604,14 @@ class Node(object):
       if self.isolateUTXO.updateWithTX(TX,utxoSet):
         self.isolateUTXO.utxoSet = utxoSet
         #save to file to transaction pool
-        TXhash = TX.hash
-        TXtimestamp = TX.timestamp
-        filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (TXtimestamp,TXhash)
-        with open(filename, 'w') as f:
-          utils.obj2jsonFile(TX,f,sort_keys=True)
-        self.database["transaction"].insert(utils.obj2dict(TX,sort_keys=True))
+        self.database["transaction"].update({"hash":TX.hash},{"$set":utils.obj2dict(TX,sort_keys=True)},upsert=True)
         #handle isolatePool
         isolatePool = copy.copy(self.isolatePool) 
         for isolateTX in isolatePool:
           if self.isolateUTXO.updateWithTX(isolateTX,utxoSet):
             self.isolatePool.remove(isolateTX)
             #save to file to transaction pool
-            TXhash = isolateTX.hash
-            TXtimestamp = isolateTX.timestamp
-            filename = BROADCASTED_TRANSACTION_DIR + '%s_%s.json' % (TXtimestamp,TXhash)
-            with open(filename, 'w') as f:
-              utils.obj2jsonFile(isolateTX,f,sort_keys=True)
-            self.database["transaction"].insert(utils.obj2dict(isolateTX,sort_keys=True))
+            self.database["transaction"].update({"hash":isolateTX.hash},{"$set":utils.obj2dict(isolateTX,sort_keys=True)},upsert=True)
           else:
             utxoSet = copy.deepcopy(self.isolateUTXO.utxoSet)
       else:

@@ -1,5 +1,6 @@
 
 CONFIG_FILE='./config.yaml'
+PEERS_FILE='peers'
 
 ROOT_DIR='/bc'
 CHAINDATA_DIR = 'chaindata/'
@@ -7,6 +8,7 @@ PRIVATE_DIR = 'private/'
 BROADCASTED_BLOCK_DIR = CHAINDATA_DIR + 'blocks/'
 BROADCASTED_TRANSACTION_DIR=CHAINDATA_DIR+'transactions/'
 UTXO_DIR = CHAINDATA_DIR+'utxo/'
+
 
 NUM_ZEROS = 2
 TRANSACTION_TO_BLOCK=3

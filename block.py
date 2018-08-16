@@ -11,9 +11,12 @@ from transaction import Transaction
 import logger
 import merkle
 
+import globalVar as _global
+
 class Block(object):
   def __init__(self, dictionary):
     Block.logger = logger.logger
+    Block.database = _global.get("database")
     utils.dictConvert(dictionary,self,
         BLOCK_VAR_CONVERSIONS)
     data=[]
@@ -55,23 +58,14 @@ class Block(object):
     return new_hash
 
   def save(self):
-    index_string = str(self.index).zfill(6) 
-    filename = '%s%s.json' % (CHAINDATA_DIR, index_string)
-    with open(filename, 'w') as block_file:
-      utils.obj2jsonFile(self,block_file,sort_keys=True)
+    Block.database["blockchain"].update({"index":self.index},{"$set":utils.obj2dict(self,sort_keys=True)},upsert=True)
   def saveToPool(self):
     index = self.index
     nonce = self.nonce
     Block.logger.warn("save block {}-{} to pool".format(index,nonce))
-    filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
-    with open(filename, 'w') as block_file:
-      utils.obj2jsonFile(self, block_file,sort_keys=True)
+    Block.database["blockpool"].update({"hash":self.hash},{"$set":utils.obj2dict(self,sort_keys=True)},upsert=True)
   def removeFromPool(self):
-    index = self.index
-    nonce = self.nonce
-    filename = BROADCASTED_BLOCK_DIR + '%s_%s.json' % (index, nonce)
-    os.remove(filename)
-    
+    Block.database["blockpool"].remove({"hash":self.hash})
   def isValid(self):
     if self.index == 0:
       return True

@@ -15,12 +15,16 @@ import globalVar as _global
 class UTXO(object):
   def __init__(self,name):
     UTXO.logger = logger.logger
+    UTXO.database = _global.get("database")
+
     # {3a75be...:[{"index":0,"txout":TXout1},{"index":1,"txout":TXout2}],
     #  m09qf3...:[{"index":0,"txout":TXout3}]}
     self.utxoSet={}
     self.name = name
     #_global.setValue("utxo.{}".format(name),self)
     #UTXO.logger.critical("utxo.{}".format(name),len(_global.getValue("utxo.{}".format(name)).utxoSet.keys()))
+  #def __dict__(self):
+  #  return lambda self:{"name":self.name}
   def reset(self,blockchain):
     #print(address,"\n")
     #print(utils.obj2json(self,indent=2))
@@ -157,19 +161,16 @@ class UTXO(object):
     self.utxoSet = utxoSet
     return utxoSet
   def save(self):
-    filename = '%s%s.json' % (UTXO_DIR,'utxo')
     try:
-      with open(filename,'w') as file:
-        utils.obj2jsonFile(self.utxoSet,file)
+      UTXO.database["utxo"].remove({})
+      UTXO.database["utxo"].insert(utils.obj2dict(self.utxoSet))
     except Exception as e:
       UTXO.logger.error("error write utxo file. {}".format(e))
   def load(self):
-    filename = '%s%s.json' % (UTXO_DIR,'utxo')
     try:
-      with open(filename,'r') as file:
-        self.utxoSet = json.load(file)
+      self.utxoSet = [item for item in UTXO.database["utxo"].find()]
     except:
-      Chain.logger.error("error read utxo file.")
+      UTXO.logger.error("error read utxo file.")
   def findUTXO(self,address):
     utxoSet = self.utxoSet
     findUtxoSet={}
@@ -218,6 +219,7 @@ class Chain(object):
   def __init__(self, blocks):
     Chain.logger = logger.logger
     _global.set("blockchain",self)
+    Chain.database = _global.get("database")
     self.blocks = blocks
     self.utxo = UTXO('main')
   def isValid(self):
@@ -332,12 +334,10 @@ class Chain(object):
       blocks.append(self.blocks[i])
     return blocks
   def moveBlockToPool(self,index):
-    index_string = str(index).zfill(6) 
-    filename = '%s%s.json' % (CHAINDATA_DIR, index_string)
-    with open(filename, 'r') as block_file:
-      block = Block(json.load(block_file))
+    blockDict = Chain.database["blockchain"].find_one({"index":index},{"_id":0})
+    block = Block(blockDict)
     try:
-      os.remove(filename)
+      Chain.database["blockchain"].remove({"index":index})
     except:
       pass
     Chain.logger.warn("remove block {}-{} from chain".format(block.index,block.nonce))
