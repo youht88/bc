@@ -15,7 +15,8 @@ from block import Block
 from transaction import Transaction
 from wallet import Wallet
 
-import threading
+from threading import Timer,Event
+
 import time
 import random
 import copy
@@ -27,7 +28,8 @@ import globalVar as _global
 import pymongo
 from kademlia import DHT
 
-from network import SocketioClient,PubNamespace,PrvNamespace
+from network import SocketioClient,PubNamespace
+
 
 class ClientNS(PubNamespace):
   node = None
@@ -37,35 +39,48 @@ class ClientNS(PubNamespace):
   def on_getNodesResponse(self,*args):
     print("on_getNodesResponse",args[0])
     self.node.nodes=self.node.nodes.union(args[0])
+  def on_getBlocksResponse(self,*args):
+    print("on_getBlocksResponse",type(args[0]))
+    for blockDict in args[0]:
+      block=Block(blockDict)
+      print("block:{}-{}".format(block.index,block.nonce))
+      if block.isValid():
+        block.saveToPool()
   def on_connect(self,*args):
     print("[Connected to new server]")
   def on_disconnect(self):
+    self.node.socketioClient.disconnect()
+    self.node.entryNodes=[]
     print("[Disconnected from new server]")
   def on_error(self,*data):
-    print("error:",data)
+    print("error1:",data,self.node.socketioClient.client)
   def on_testResponse(self,*args):
     print("[",args,self.node.entryNode,"]")
   def on_broadcast(self,*args):
-    #print("6.geted from entry Server",args)
-    print("7.sync from local client to local server")
-    #self.node.socketioTestClient.emit("localServer",args[0])
-    socketioLocal = SocketioClient("127.0.0.1:5000",PrvNamespace,'/prv')
-    socketioLocal.once("localServer",args[0],"localServerResponse",lambda arg:print(arg))
-
+    print("7.sync from entryNode ")
+    self.node.handleData(args[0])
+    self.node.socketio.emit("broadcast",args)
+  def on_localServerResponse(self,*args):
+    print("8.geted from me",args)
+  def on_resetEntryNodes(self,*args):
+    Node.logger.info("resetEntryNodes getData:{}".format(args[0]))   
+    self.node.entryNodes = args[0]
+    entryNodes=list(args[0])
+    entryNodes.append(self.node.me)
+    self.node.socketio.emit("resetEntryNodes",entryNodes)
 
 class Node(object):
   def __init__(self,dict):
     Node.logger = logger.logger
     _global.set("node",self)
     self.socketio =None #dict.get("socketio")
-    self.socketioTestClient = None
     self.socketioClient = None #dict.get("socketioClient")
-    self.isMining=False
-    self.isBlockSyncing=False
+    self.eMining=Event()
+    self.eBlockSyncing=Event()
     self.isolateUTXO=None
     self.isolatePool=[]
     self.tradeUTXO = None
-    self.clientsNode={}
+    self.clientNodes={}
     
     self.httpServer = dict.get("httpServer")
     self.me = dict.get("me")
@@ -73,6 +88,8 @@ class Node(object):
     self.entryKad = dict.get("entryKad")
     self.db = dict.get("db")
     self.peers = dict.get("peers")
+    self.entryNodes = set()
+    self.connected=Event()
 
     kadhost,kadport = self.entryKad.split(':')
     self.dht = DHT("0.0.0.0",int(kadport),boot_host=kadhost,boot_port=int(kadport))
@@ -95,28 +112,100 @@ class Node(object):
     except:
       self.peers=self.me
     self.nodes=set(self.peers.split(';'))
+    
+    self.otherMind=False
 
-  def setSocketio(self,socketio,socketioTestClient):
+  def setSocketio(self,socketio):
     self.socketio = socketio
-    self.socketioTestClient = socketioTestClient
-    #define self.socketioClient
     ClientNS.node=self
     if self.entryNode != self.me: 
-      entryNodes=[self.entryNode]
-      for entryNode in entryNodes:
-        self.socketioClient=SocketioClient(entryNode,ClientNS,'/pub',self.me)
-        self.socketioClient.connect()
-        print('socketioClient.client:',self.socketioClient.client)
-        if self.socketioClient.client:
-          break
+      self.socketioClient=SocketioClient(self.entryNode,ClientNS,'',self.me)
     else:
       self.socketioClient=None
-    #self.checkNodes()
-  def checkNodes(self):
-    if self.socketioClient.client:
+    connected=self.connectEntryNode(self.entryNode)
+    print("[connected]",connected)
+    self.checkNodes = utils.CommonThread(self.checkConnectedNode,())
+    self.checkNodes.setDaemon(True)
+    self.checkNodes.start()
+    if not connected:
+      Node.logger.critical("wait for confirm connected.")
+      self.connected.wait()
+  def connectEntryNode(self,peer):
+    def fun(*data):
+      self.entryNodes = set(list(data[0]))
+      self.entryNodes.add(self.entryNode)
+      Node.logger.info("entryNode's entryNodes:",self.entryNodes)
+    try:
+      if self.socketioClient and (not self.socketioClient.connected):
+        print("start connect to {}".format(peer))
+        self.entryNode=peer
+        self.socketioClient.reconnect(peer)
+        print("reconnect:",self.socketioClient.connected)
+        if self.socketioClient.connected:
+          self.socketioClient.emit("getEntryNodes",{},callback=fun)
+          #self.me can not in self.entryNodes 
+          print("peer:{},self.me:{},entryNodes:{}".format(peer,self.me,self.entryNodes))
+          if self.me in self.entryNodes:
+            Node.logger.info("refuse entry node {} because it is in {}".format(peer,self.entryNodes))
+            self.entryNode=None
+            self.entryNodes=set()
+            self.socketioClient.disconnect()
+          elif len(self.entryNodes)>=3:
+            Node.logger.info("refuse entry node {} because it is to be too deep level of {}".format(peer,self.entryNodes))
+            self.entryNode=None
+            self.entryNodes=set()
+            self.socketioClient.disconnect()
+          else:
+            Node.logger.info("accept this entry node",peer)
+            entryNodes = list(self.entryNodes)
+            entryNodes.append(self.me)          
+            self.socketio.emit("resetEntryNodes",entryNodes)
+            utils.updateYaml("../"+CONFIG_FILE,"blockchain",{"entryNode":self.entryNode})
+        else:
+          self.entryNode=self.me 
+    except Exception as e:
+      Node.logger.critical("connect to {} error".format(peer))   
+    if self.socketioClient:
+      return self.socketioClient.connected
+    else:
+      return False   
+  def checkConnectedNode(self):
+    peers = list(self.nodes)
+    try:
+      peers.remove(self.me)
+    except:
       pass
-      # Node.logger.critical(time.time(),self.socketioClient.client._ping()))
-    threading.Timer(60,self.checkNodes).start()
+    temp=[]
+    while True:
+      try:
+        if self.socketioClient and ((not self.socketioClient.connected) or (not self.entryNodes)):
+          print("start check nodes {}".format(peers))
+          self.connected.clear()
+          for i,peer in enumerate(peers):
+            self.connectEntryNode(peer)
+            if self.socketioClient.connected:
+              temp.insert(0,peer)
+              temp.extend(peers[i+1:])
+              self.connected.set()
+              break
+            elif self.entryNode == None:
+              #can connect but been refused
+              temp.insert(0,peer)
+            elif self.entryNode == self.me:
+              temp.append(peer)
+            else:
+              print("???",self.entryNode,self.me)
+              temp.append(peer)
+          else:
+            Node.logger.critical("no fit entryNode to be selected!")
+          peers=list(temp)
+          temp=[]
+          print("end check nodes {}".format(peers))
+        else:
+          self.connected.set()
+      except Exception as e:
+        Node.logger.critical("checkNodes error",e)
+      time.sleep(30)
   def getRandom(self,percent):
     #find n% random nodes without me 
     if percent<0 or percent>1:
@@ -137,31 +226,11 @@ class Node(object):
     if self.socketioClient and self.socketioClient.client:
       self.socketioClient.emit('test','hello',callback=fun) 
       self.socketioClient.emit("getNodes",{},)
-    Node.logger.debug("step two: broadcase self.me")
-    data={"source":self.me,"type":"registeNode","value":self.me}
+    Node.logger.debug("step two: broadcast self.me")
     Node.logger.info("register node {}".format(self.me))
-    self.broadcast(data)
+    self.broadcast(self.me,type="registeNode")
     self.save()
     return
-    ''' **** obsolete method ******
-    #self.checkNodes()
-    doneNodes=self.nodes
-    todoNodes=set()
-    todoNodes.add(self.entryNode)
-    if self.entryNode != None :
-      while len(todoNodes):
-        node = todoNodes.pop()  
-        try:
-          res = requests.get("http://"+node+"/node/register",params={"newNode":self.me},timeout=3)
-          comeinNodes=set(res.json()["nodes"])
-          doneNodes.add(node)
-          todoNodes=(todoNodes | comeinNodes) - doneNodes
-        except Exception as e:
-          Node.logger.critical(node)
-      self.nodes =  doneNodes 
-      Node.logger.info("nodes:{}".format(doneNodes))
-      self.save()
-     '''
   def register(self,newNode):
     self.nodes.add(newNode)
     self.save()
@@ -218,7 +287,7 @@ class Node(object):
     if nodes==[]:
       nodes = self.getRandom(percent)
     threads=[]
-    event = threading.Event()
+    event = Event()
     for i,peer in enumerate(nodes):
       slash = '/' if path[0]!='/' else ''
       if type(path)==str:
@@ -343,11 +412,14 @@ class Node(object):
   def txPoolRemove(self,block):
     #remove transactions from txPool
     if block:
-      for TX in block.data:
-        if TX.isCoinbase():
-          continue
-        self.database["transaction"].remove({"hash":TX.hash})
-      
+      try:
+        for TX in block.data:
+          if TX.isCoinbase():
+            continue
+          self.database["transaction"].remove({"hash":TX.hash})
+      except Exception as e:
+        Node.logger.critical(block,e)
+        raise e
   def blockPoolSync(self):
     maxindex = self.blockchain.maxindex()
     Node.logger.info("is BlockSyning {} from pool".format(maxindex+1))
@@ -384,7 +456,7 @@ class Node(object):
       finally:
         lastblock = self.blockchain.lastblock()
         Node.logger.info("current blockchain high:{}-{}".format(lastblock.index,lastblock.nonce))
-    Node.logger.info("end blocksync")
+    Node.logger.info("end blocksync {}-{}".format(lastblock.index,lastblock.nonce))
   def resolveFork(self,forkBlock):
     blocks=[forkBlock]
     index = forkBlock.index - 1
@@ -487,25 +559,9 @@ class Node(object):
     else:
       newTXdict=utils.obj2dict(newTX)
       self.transacted(newTXdict)
-      
-      #pNewTXdict = pickle.dumps(newTXdict)
-      #self.kadServer.set("TX"+newTX.hash,pNewTXdict)
-      '''
-      for peer in self.nodes:
-        try:
-          res = requests.post("http://%s/transacted"%peer,
-                         json=newTXdict,timeout=10)
-          if res.status_code == 200:
-            Node.logger.info("%s successed."%peer)
-          else:
-            Node.logger.error("%s error is %s"%(peer,res.status_code))
-        except Exception as e:
-          Node.logger.error("%s error is %s"%(peer,e))  
-      '''
       # use socket to broadcast instead of http
-      data={"source":self.me,"type":"newTX","value":newTXdict}
       Node.logger.info("broadcast transaction {}".format(newTX.hash))
-      self.broadcast(data)
+      self.broadcast(newTXdict,type="newTX")
       
       Node.logger.info("transaction广播完成")
       return newTXdict
@@ -542,7 +598,7 @@ class Node(object):
     if newBlock==None:
       Node.logger.warn("other miner mined")
       return "other miner mined"
-    Node.logger.info("end mine.",index)
+    Node.logger.info("end mine {}-{}.".format(index,newBlock.nonce))
     #remove transaction from txPool
     self.txPoolRemove(newBlock) 
     
@@ -551,9 +607,8 @@ class Node(object):
     #push to blockPool
     self.mined(blockDict)
     
-    data = {"source":self.me,"type":"newBlock","value":blockDict}
     Node.logger.info("broadcast block {}-{}".format(newBlock.index,newBlock.nonce))
-    self.broadcast(data)
+    self.broadcast(blockDict,type="newBlock")
       
     Node.logger.info("mine广播完成")
     
@@ -566,19 +621,15 @@ class Node(object):
   
   def findNonce(self,newBlock):
     Node.logger.info("mining for block %s" % newBlock.index)
+    self.otherMined=False
     newBlock.updateHash()#calculate_hash(index, prev_hash, data, timestamp, nonce)
     newBlock.diffcult = NUM_ZEROS
     while str(newBlock.hash[0:NUM_ZEROS]) != '0' * NUM_ZEROS:
       #if not genesis and blockchain had updated by other node's block then stop
-      if newBlock.index!=0: 
-        #if self.blockchain.maxindex() >= newBlock.index:
-        haveBlock=self.database["blockpool"].find_one({"index":newBlock.index},{"_id":1})
-        if haveBlock:
-          return Node
-
+      if newBlock.index!=0 and self.otherMined: 
+          return None
       newBlock.nonce += 1
       newBlock.updateHash()
-      
     Node.logger.info("block %s mined. Nonce: %s , hash: %s" % (newBlock.index, newBlock.nonce,newBlock.hash))
     Node.logger.info("block #{} is {}".format(
           str(newBlock.index),
@@ -591,6 +642,7 @@ class Node(object):
     if block.isValid():
       #save to file to possible folder
       self.database["blockpool"].update({"hash":block.hash},{"$set":utils.obj2dict(block,sort_keys=True)},upsert=True)
+      self.otherMined=True
       return True
     else:
       return False
@@ -622,11 +674,15 @@ class Node(object):
       utils.warning("transaction is not valid,hash is:",TX.hash)
       return False
 
-  def broadcast(self,data):
-    if self.socketioClient and self.socketioClient.client:
-      self.socketioClient.emit("entryServer",data)
-    #print('2.local server broadcast to follower client')
-    self.socketio.emit("broadcast",data,namespace='/pub')
+  def broadcast(self,data,type):
+    message = {"source":[self.me],"type":type,"value":data}
+    print('1.send data to entryNode')
+    if self.socketioClient :
+      res=self.socketioClient.emit("entryServer",message)
+      print("result:",res)
+    print('2.local server broadcast to follower client')
+    res = self.socketio.emit("broadcast",message)
+    print("result:",res)
 
   def handleData(self,data):
     if data.get("type")=="newBlock":
@@ -634,8 +690,11 @@ class Node(object):
     elif data.get("type")=="newTX":
       self.transacted(data.get("value"))
     elif data.get("type")=="registeNode":
+      Node.logger.info("testBroadcast getData:{}".format(data.get("value")))      
       self.register(data.get("value"))
     elif data.get("type")=="setKV":
       pass
     elif data.get("type")=="getKV":
       pass
+    elif data.get("type")=="testBroadcast":
+      Node.logger.info("testBroadcast getData:{}".format(data.get("value")))

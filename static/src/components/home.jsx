@@ -3,8 +3,6 @@ import {Table,Form, Input, Button,Divider,Tag,Icon,message,notification,Alert } 
 import {Link} from 'react-router-dom';
 import moment from 'moment';
 
-import {Controlled as CodeMirror} from 'react-codemirror2'
-
 import TxForm from './txForm.jsx';
 
 const FormItem = Form.Item;

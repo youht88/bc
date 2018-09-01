@@ -16,6 +16,8 @@ import threading,queue,multiprocessing
 import platform
 from  enum import Enum
 
+import yaml
+
 def genRSAKey(prvfile="private.pem",pubfile="public.pem"):
   #only a sample for test
   random_generate=Random.new().read
@@ -236,3 +238,12 @@ def getPlatform():
   _system =platform.system()     
   _arch = platform.machine()
   
+def updateYaml(yamlFile,root,data={},default_flow_style=False):
+  with open(yamlFile,"r") as f:
+    config=yaml.load(f.read())
+    if not config:
+      config={}
+  config[root].update(data)
+  with open(yamlFile,"w") as f:
+    f.write(yaml.dump(config,default_flow_style=default_flow_style))
+    

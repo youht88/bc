@@ -109,6 +109,7 @@ class NodeInfo extends React.Component{
         <div style={{margin:10}}>
           <h3><Tag color="red" style={{width:120}}>me</Tag>{info && info.me}</h3>
           <h3><Tag color="red" style={{width:120}}>entryNode</Tag>{info && info.entryNode}</h3>
+          <h3><Tag color="red" style={{width:120}}>entryNodes</Tag>{info && String(info.entryNodes)}</h3>
           <h3><Tag color="red" style={{width:120}}>lastblock</Tag>{info && info["blockchain.maxindex"]}-{info && info["blockchain.maxindex.nonce"]}</h3> 
           <h3><Tag color="red" style={{width:120}}>isMining</Tag>{info && info.isMining||"no"}</h3> 
           <h3><Tag color="red" style={{width:120}}>isBlockSyncing</Tag>{info && info.isBlockSyncing||"no"}</h3> 

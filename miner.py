@@ -43,9 +43,10 @@ parser.add_argument("--httpServer",type=str,help="default httpServer is 0.0.0.0:
 parser.add_argument("--entryKad",type=str,help="entry node of kad,ip:port")
 parser.add_argument("--db",type=str,help="db connect,ip:port/db")
 parser.add_argument("--name",type=str,help="name of wallet")
+parser.add_argument("--syncNode",action="store_true",help="sync node")
 parser.add_argument("--full",action="store_true",help="full sync")
 parser.add_argument("--debug",action="store_true",help="if debug mode ")
-parser.add_argument("--logging",type=str,choices=["debug","info","warn","error","critical"],default="debug",help="logging level:debug info warn error critical")
+parser.add_argument("--logging",type=str,choices=["debug","info","warn","error","critical"],help="logging level:debug info warn error critical")
 
 args=parser.parse_args()
 
@@ -96,6 +97,10 @@ def syncConfigFile(args):
         config["debug"]=args.debug
       args.debug = config.get("debug")
       
+      if args.syncNode:
+        config["syncNode"]=args.syncNode
+      args.syncNode = config.get("syncNode")
+      
       if not (args.me and args.entryNode and args.entryKad and args.db and args.httpServer):
         raise Exception("you must define me,entryNode,entryKad,db,httpServer arguments")               
     with open(CONFIG_FILE,"w") as f:
@@ -134,8 +139,6 @@ logger.logger = log
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app,async_mode="threading")
-#socketioTestClient= SocketIOTestClient(app,socketio,'/prv')
-socketioTestClient=None
 
 #make node
 node=Node({"httpServer":args.httpServer,
@@ -157,12 +160,13 @@ except:
 #log.info("2.node.nodes {}".format(node.nodes))
                
 #set socketio and socketio_client
-node.setSocketio(socketio,socketioTestClient)
+node.setSocketio(socketio)
 
 #time.sleep(1) #暂停1秒，因为setSocketio开启线程
 
 #register me and get all alive ndoe list
-node.syncOverallNodes()
+if args.syncNode:
+  node.syncOverallNodes()
 
 #clear transaction
 node.clearTransaction()
@@ -189,25 +193,34 @@ bestIndex = node.syncOverallChain(args.full)
 log.critical("bestIndex:",bestIndex,"blockchain:",node.blockchain.maxindex())
 
 def blockerProcess():
-  prevFileset=[]
-  prevHashs=[]
+  prevSets=[]
   while True:
     if args.debug and len(threading.enumerate())!=4: #debug调试时使用
       continue
-    if node.isMining or node.isBlockSyncing:
-      time.sleep(2)
-      continue
-    node.isBlockSyncing=True
+    node.eMining.wait()  
+    node.eBlockSyncing.wait()
+    node.eBlockSyncing.clear()
     try:
       maxindex = node.blockchain.maxindex()
-      hashs = [item["hash"] for item in node.database["blockpool"].find({},{"_id":False,"hash":True})]
-      if len(hashs) >=1 and hashs != prevHashs:
-        prevHashs = hashs
+      sets = [(item["hash"],item["index"],item["nonce"]) for item in node.database["blockpool"].find({"index":{"$gt":maxindex}},{"_id":False,"hash":True,"index":True,"nonce":True})]
+      #check this gap between maxindex+1 and lastest
+      indexes=[item[1] for item in sets]
+      try:
+        minindex = min(indexes)
+      except:
+        minindex = maxindex + 1
+      if maxindex + 1 <= minindex - 1:  
+        if node.socketioClient and node.socketioClient.client:
+          node.emit("getBlocks",(maxindex + 1,minindex - 1))
+        node.eBlockSyncing.set()
+        continue
+      if len(sets) >=1 and sets != prevSets:
+        prevSets = sets
         node.blockPoolSync()
     except Exception as e:
       log.critical(traceback.format_exc())
-    node.isBlockSyncing=False
-    time.sleep(2)
+    node.eBlockSyncing.set() #放行blocksync
+    #time.sleep(2)
     
 blocker=utils.CommonThread(blockerProcess,())
 blocker.setDaemon(True)
@@ -222,10 +235,10 @@ def minerProcess():
   while True:
     if args.debug and len(threading.enumerate())!=4: #debug调试时使用
       continue
-    if node.isMining or node.isBlockSyncing:
-      time.sleep(2)
-      continue
-    node.isMining=True
+    node.eMining.wait()
+    node.eBlockSyncing.wait()
+    node.eMining.clear()
+    #log.info("minerProcess start.")
     try:
       txPoolCount = node.database["transaction"].count()
       if txPoolCount >= TRANSACTION_TO_BLOCK: 
@@ -235,8 +248,9 @@ def minerProcess():
         newBlock=node.mine(coinbase)
     except Exception as e:
       log.critical(traceback.format_exc())
-    node.isMining=False
-    time.sleep(2)
+    #log.info("minerProcess stop.")
+    node.eMining.set()
+    #time.sleep(2)
 
 miner = utils.CommonThread(minerProcess,())
 miner.setDaemon(True)
@@ -245,8 +259,8 @@ miner.start()
 @app.route('/getStatus',methods=['GET'])
 def getStatus():
   status={
-    "node.isMining":node.isMining,
-    "node.isBlockSyncing":node.isBlockSyncing,
+    "node.isMining":not node.eMining.isSet(),
+    "node.isBlockSyncing":not node.eBlockSyncing.isSet(),
     "blockchain.maxindex":node.blockchain.maxindex(),
     "blockchain.maxindex.nonce":node.blockchain.blocks[node.blockchain.maxindex()].nonce    
   }
@@ -292,7 +306,7 @@ def getBlockByHash(blockHash):
 @app.route('/blockchain/get/<string:peer>/<int:index>/',methods=['GET'])
 def getRemoteBlocks(peer,index):
   result=node.httpProcess("http://"+peer+"/blockchain/index/"+str(index))
-  print(result,result["response"])
+  print(result)
   blocksDict=result["response"].json()
   if blocksDict:
     block = Block(blocksDict[0])
@@ -395,11 +409,12 @@ def nodeInfo():
     "peers":peers,
     "me":node.me,
     "entryNode":node.entryNode,
-    "clientsNode":node.clientsNode,
+    "entryNodes":list(node.entryNodes),
+    "clientNodes":node.clientNodes,
     "wallet.address":mywallet.address,
     "wallet.balance":node.blockchain.utxo.getBalance(mywallet.address),
-    "node.isMining":node.isMining,
-    "node.isBlockSyncing":node.isBlockSyncing,
+    "node.isMining":node.eMining.isSet(),
+    "node.isBlockSyncing":node.eBlockSyncing.isSet(),
     "blockchain.maxindex":node.blockchain.maxindex(),
     "blockchain.maxindex.nonce":node.blockchain.blocks[node.blockchain.maxindex()].nonce    
   }
@@ -561,36 +576,68 @@ def getValue(key):
 
 #SocketIO
 
-@socketio.on('connect',namespace='/pub')
+@socketio.on('connect')
 def socketioConnect():
   sid = request.sid
   clientName = request.args.to_dict().get("me")
-  if clientName==None or clientName in node.clientsNode:
-    return False
-  node.clientsNode[clientName]=sid
+  print("connect /,clientName:{}".format(clientName))
+  #if clientName==None or clientName=="" :
+  #  return False
+  #if clientName in node.clientNodes:
+  #  return False
+  node.clientNodes[clientName]=sid
+  print("connect /,clientNodes:{}".format(node.clientNodes))
   emit('wellcome',clientName,broadcast=True,include_self=False)
   print("[client {}({}) connected ]".format(clientName,sid))
 
-@socketio.on('disconnect',namespace='/pub')
+@socketio.on('connect','/pub')
+def socketioConnect():
+  sid = request.sid
+  clientName = request.args.to_dict().get("me")
+  print("connect /pub,clientName:{}".format(clientName))
+  if clientName==None or clientName=="" :
+    return False
+  #if clientName in node.clientNodes:
+  #  return False
+  node.clientNodes[clientName]=sid
+  emit('wellcome',clientName,broadcast=True,include_self=False)
+  print("[client {}({}) connected ]".format(clientName,sid))
+
+@socketio.on('connect','/prv')
+def socketioConnect():
+  sid = request.sid
+  print("connect /prv,clientNodes:{}".format(node.clientNodes))
+  emit('wellcome',clientName,broadcast=True,include_self=False)
+
+@socketio.on('disconnect')
 def socketioDisconnect():
   sid = request.sid
   clientName = request.args.to_dict().get("me")
-  node.clientsNode.pop(clientName)
+  node.clientNodes.pop(clientName)
   emit('goodbye',clientName,broadcast=True,include_self=False)
   print("[client {}({}) disconnect]".format(clientName,sid))
 
-@socketio.on('getNodes',namespace='/pub')
+@socketio.on('getNodes')
 def socketioGetNodes(data):
   print("*"*20,"getNodes","*"*20)
   peers=list(node.nodes)
-  print(peers)
   emit('getNodesResponse',peers)
 
-@socketio.on('getNodes',namespace='/prv')
-def socketioGetNodesResponse(data):
-  print("*"*20,"getNodes","*"*20)
-  print(data)
-  node.nodes=node.nodes.union(data)
+@socketio.on('getEntryNodes')
+def socketioGetEntryNodes(data):
+  print("*"*20,"getEntryNodes","*"*20)
+  entryNodes = node.entryNodes
+  print("entryNodes:",entryNodes)
+  return list(entryNodes)
+
+@socketio.on('getBlocks')
+def socketioGetBlocks(range):
+  print("*"*20,"getBlocks","*"*20)
+  start,end = range
+  blocks = node.blockchain.findRangeBlocks(start,end)
+  print(start,end,type(blocks),blocks)
+  if blocks:
+    emit('getBlocksResponse',utils.obj2json(blocks))
 
 @socketio.on('test','/')
 def socketioTest0(data):
@@ -598,52 +645,88 @@ def socketioTest0(data):
   emit('testResponse',data.upper()+'0')
   return data[0].upper()+data[1:]+'0'
 
-@socketio.on('test','/pub')
+@socketio.on('test','/broadcast')
 def socketioTest(data):
   print("recieve",data)
-  emit('testResponse',data.upper())
+  emit('testResponse',data.upper(),broadcast=True,namespace="/")
   return data[0].upper()+data[1:]
 
 @socketio.on('test','/pub1')
 def socketioTest1(data):
   print("recieve1",data+'1')
-  emit('testResponse',data.upper()+'1')
+  emit('testResponse',data.upper()+'1',namespace="/")
   return data[0].upper()+data[1:]+'1'
   
-@socketio.on('entryServer',namespace='/pub')
+@socketio.on('entryServer')
 def socketioEntryServerPub(data):
   print('3.geted from follower client',data)
   node.handleData(data)
-    
-  if node.me != data["source"]:  
+  if not (node.me in data["source"]):  
     print("4.local client send to entry server!")
     if node.socketioClient and node.socketioClient.client:
-      node.socketioClient.client.emit("entryServer",data,namespace='/pub')
+      if not (node.entryNode in data["source"]):
+        print("11.{} [not have] {}".format(data["source"] , node.entryNode))
+        data["source"].append(node.me)
+        res=node.socketioClient.emit("entryServer",data)
+        print("12.end socketioClient.emit",res)
+      else:
+        print("13.{} [have] {}".format(data["source"] , node.entryNode))
     else:
       print("socketioClient is None or socketioClient.client is None")
     print('5.local server broadcast to follower client')
-    emit("broadcast",data,include_self=False,broadcast=True,namespace='/pub')
+    emit("broadcast",data,include_self=False,broadcast=True)
   else:
-    print(node.me,' == ',data["source"])
+    print(node.me,' in ',data["source"])
 
-@socketio.on('localServer',namespace='/prv')
+@socketio.on('localServer')
 def socketioEntryServerPrv(data):
   print('9.geted from my local client',data)
-  node.handleData(data)
-    
+  node.handleData(data)  
   if node.me != data["source"]:  
     print('10.local server broadcast to follower client')
-    emit("broadcast",data,include_self=False,broadcast=True,namespace='/pub')
+    print("node.clientNodes",node.clientNodes)
+    emit("broadcast",data,include_self=False,broadcast=True)
     emit("localServerResponse","broadcasted!")
       
+@app.route('/socket/broadcast/<data>',methods=['GET'])
+def testSocketBroadcast(data):
+  print("[test socket broadcast]")
+  node.broadcast(data,"testBroadcast")
+  return 'ok'
+
+@app.route('/socket/local/<data>',methods=['GET'])
+def testSocketLocal(data):
+  print("[test socket local]")
+  node.socketio.emit('testResponse',{"server":data})
+  return 'ok'
+  
 @app.route('/socket/<data>',methods=['GET'])
 def testSocket(data):
   print("[test socket]")
-  print(node.socketioClient)
-  print(node.socketioClient.client)
-  node.socketioClient.client.emit('test',data)
-  return 'ok'
+  if node.socketioClient and node.socketioClient.client:
+    res=node.socketioClient.emit('test',data)
+    if res==False:
+      return "emit error"
+    else:
+      return "emit ok"
+  else:
+    return "connect false"
 
+@app.route('/socket/<peer>/<data>',methods=['GET'])
+def testSocketPeer(peer,data):
+  print("[test socket peer]")
+  node.socketioClient.reconnect(peer)
+  node.socketioClient.connecting.wait(10)
+  if node.socketioClient.connected:
+    node.entryNode = peer
+    utils.updateYaml("../"+CONFIG_FILE,"blockchain",{"entryNode":node.entryNode})
+    res=node.socketioClient.emit('test',data)
+    if res==False:
+      return "emit error"
+    else:
+      return "emit ok"
+  else:
+    return "connect false"
 @socketio.on_error()        # Handles the default namespace
 def error_handler(e):
     log.critical("on_error",e)
@@ -689,4 +772,6 @@ def checkScript():
 if __name__ == '__main__':
   app.config['JSON_SORT_KEYS']=False
   host,port = args.httpServer.split(':')
+  node.eMining.set()
+  node.eBlockSyncing.set()
   socketio.run(app,host=host, port=int(port),debug=args.debug)

@@ -12,7 +12,7 @@ from socketIO_client import BaseNamespace
 
 from requests.exceptions import ConnectionError
 import asyncio
-from threading import Event
+from threading import Thread,Event
 import logging
 
 #logging.getLogger('socketIO-client').setLevel(logging.CRITICAL)
@@ -203,71 +203,46 @@ class Gossip(object):
     return result
     
 class PubNamespace(BaseNamespace):
+  '''def on_open(self,*args):
+    print("open occure",args)
+  def on_close(self,*args):
+    print("close occure",args)
+  def on_ping(self,*args):
+    print("ping occure",args)
+  def on_pong(self,*args):
+    print("pong occure",args)
+  '''
   def on_connect(self,*args):
     print("[Connected to server]")
   def on_disconnect(self):
     print('[Disconnected from server]')
-  def on_wellcome(self,data):
-    print("wellcome",data)
-  def on_goodbye(self,data):
-    print("goodbye",data)
-  def on_myevent(self,*args):
-    print("recieved from remote",args)
-    with SocketIO_Client("127.0.0.1",5000,Namespace2) as socketioLocal:
-      print("sync to local server")
-      socketioLocal.emit("event",args)
+  def on_wellcome(self,*args):
+    print("wellcome",args)
+  def on_goodbye(self,*args):
+    print("goodbye",args)
+  def on_error(self,*args,**kv):
+    print("error",args,kv)
   def on_testResponse(self,*args):
     print("[",args,"]")
-
-  def on_broadcast(self,*args):
-    #print("6.geted from entry Server",args)
-    print("7.sync from local client to local server")
-    socketioLocal = SocketioClient("127.0.0.1:5000",PrvNamespace,'/prv')
-    socketioLocal.once("localServer",args[0],"localServerResponse",lambda arg:print(arg))
-    
-    #socketIO = SocketIO_Client("127.0.0.1",5000)
-    #socketioLocal = socketIO.define(PrvNamespace,'/prv')
-    #socketioLocal.emit("localServer",args[0])
-    #socketIO.wait(seconds=1)
-    
-          
-class PrvNamespace(BaseNamespace):
-  def on_test(self,*args):
-    print("11.just a test")
-  def on_broadcast(self,*args):
-    print("8.geted from me",args)
     
 class SocketioClient(object):
-  def __init__(self,entryNode,tNamespace=None,path='/',me="",params={}):
+  def __init__(self,entryNode,tNamespace=None,path='',me="",peers=[],params={}):
+    self.entryNode = entryNode
+    self.entryNodes = []
     self.host = entryNode.split(':')[0]
     self.port = int(entryNode.split(':')[1])
     self.tNamespace = tNamespace
     self.params = params
     self.path = path
+    self.thread = None
     self.client = None
-    self._loop = None
-    self._event = Event()
-    self._loopThread = None
     self.connected=False
+    self.connecting=Event()
     self.me=me
     self.params["me"]=self.me
-  ###### absloate
-  async def _conn(self):
-    io = SocketIO_Client(self.host,self.port,params=self.params)
-    self.client = io.define(self.tNamespace,self.path) 
-  def _startLoop(self):
-    self._loop.run_until_complete(self._conn())  
-    self.client._io.wait()
-    #self._client.wait_for_callbacks(seconds=1) 
-    #self.loop.run_forever()
-  def start(self):
-    self._loop = asyncio.get_event_loop()
-    self._loopThread = utils.CommonThread(self._startLoop,())
-    self._loopThread.setDaemon(True)
-    self._loopThread.start()
-  ####### 
-  def stop(self):
-    if self.client:
+    self.peers=set(peers) - set([me])
+  def disconnect(self):
+    if self.client and self.connected:
       self.client.disconnect()
     self.connected=False 
   def once(self,emitEventname,data,respEventname=None,fun=None):
@@ -275,49 +250,42 @@ class SocketioClient(object):
       io = SocketIO_Client(self.host,self.port,wait_for_connection=False,params=self.params)
       self.client = io.define(self.tNamespace,self.path) 
       self.client.once(respEventname,fun)
-      self.client.emit(emitEventname,data)
-      self.client._io.wait(seconds=1)
-    except ConnectionError:
-        print('The server is down. Try again later.')
-        
-  def _connect(self):
-    try:
-      self._event.clear()
-      self.connected=False
-      print(1)
-      io = SocketIO_Client(self.host,self.port,wait_for_connection=True,params=self.params)
-      print(2)
-      self.client = io.define(self.tNamespace,self.path) 
-      print(3)
-      self.connected=True
-      self._event.set()
-      self.client._io.wait()
+      self.emit(emitEventname,data)
     except:
-      self._event.set()
-      
+        print('The server is down. Try again later.')
+  def _connect(self):
+    self.connecting.clear()
+    try:
+      self.connected=False
+      io = SocketIO_Client(self.host,self.port,wait_for_connection=False,params=self.params)
+      self.client = io.define(self.tNamespace,self.path) 
+      self.connected=True
+      io.wait()
+    except Exception as e:
+      self.disconnect()
+      print("error to connect entryNode:{}".format(self.entryNode))
+    self.connecting.set()
+    print("close thread")      
   def connect(self):
-    self._loopThread = utils.CommonThread(self._connect,())
-    self._loopThread.setDaemon(True)
-    self._loopThread.start()
-    if not self._event.isSet():
-      print("wait a moment...")
-    self._event.wait(10)
-    return self.connected
-  
+    self.thread = utils.CommonThread(self._connect,())
+    self.thread.setDaemon(True)
+    self.thread.start()
+    self.connecting.wait(5)
+
   def reconnect(self,entryNode):
-    self.stop()
+    self.disconnect()
+    self.entryNode = entryNode
     self.host = entryNode.split(':')[0]
     self.port = int(entryNode.split(':')[1])
-    self._loopThread = utils.CommonThread(self._connect,())
-    self._loopThread.setDaemon(True)
-    self._loopThread.start()
-    if not self._event.isSet():
-      print("wait a moment...")
-    self._event.wait(10)
-    return self.connected
+    self.connect()
     
-  def emit(self,emitEventName,data,callback=None):
+  def emit(self,emitEventName,data,path='/',callback=None):
     try:
+      if not self.connected or not self.client:
+        return False
+      self.client.path=path
       self.client.emit(emitEventName,data,callback=callback)   
-    except:
-      print("emit error")
+      self.client._io.wait(1)
+      return True
+    except Exception as e:
+      return False

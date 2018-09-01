@@ -148,6 +148,8 @@ class UTXO(object):
           outs=utxoSet[txin.prevHash]
         except:
           outs=[]
+        if txin.prevHash=="0042cf9d6ad3d4a53c3cce6fbda9e86171b29abd0bfe5af5fe795c15aab2eb95":
+          print(utils.obj2json(prevTXs))
         prevTX=prevTXs[txin.prevHash]
         prevOuts = prevTX.outs
         outs.append({
