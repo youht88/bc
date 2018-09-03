@@ -51,7 +51,8 @@ module.exports={
         jQuery:"jquery",
         "window.jQuery":"jquery",
         pio:"socket.io-client",
-        _:"underscore"
+        _:"underscore",
+        echarts:"echarts"
         })
   ],
   devServer:{

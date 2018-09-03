@@ -49,7 +49,8 @@ class ClientNS(PubNamespace):
   def on_connect(self,*args):
     print("[Connected to new server]")
   def on_disconnect(self):
-    self.node.socketioClient.disconnect()
+    #self.node.socketioClient.disconnect()
+    self.socketioClient.connected=False
     self.node.entryNodes=[]
     print("[Disconnected from new server]")
   def on_error(self,*data):
@@ -136,7 +137,7 @@ class Node(object):
       self.entryNodes.add(self.entryNode)
       Node.logger.info("entryNode's entryNodes:",self.entryNodes)
     try:
-      if self.socketioClient and (not self.socketioClient.connected):
+      if self.socketioClient and (not self.socketioClient.connected or (not self.entryNodes)):
         print("start connect to {}".format(peer))
         self.entryNode=peer
         self.socketioClient.reconnect(peer)
@@ -150,7 +151,7 @@ class Node(object):
             self.entryNode=None
             self.entryNodes=set()
             self.socketioClient.disconnect()
-          elif len(self.entryNodes)>=3:
+          elif len(self.entryNodes)>=4:
             Node.logger.info("refuse entry node {} because it is to be too deep level of {}".format(peer,self.entryNodes))
             self.entryNode=None
             self.entryNodes=set()

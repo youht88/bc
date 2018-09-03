@@ -4,12 +4,11 @@ import {Link} from 'react-router-dom';
 import moment from 'moment';
 
 import TxForm from './txForm.jsx';
+import MyEcharts from './echarts.jsx';
 
 const FormItem = Form.Item;
 const Search = Input.Search;
 const {TextArea} = Input
-
-
 
 class BlockList extends React.Component{
   constructor(props) {
@@ -258,7 +257,7 @@ class OneSearch extends React.Component{
             rules: [
               {required: true, message: 'Please a Hash'}],
           })(
-            <Input placeholder="input Any Hash" />
+            <Input placeholder="input Any Hash" style={{width:"300px"}}/>
           )}
           </FormItem>
           <FormItem >
@@ -272,13 +271,34 @@ class OneSearch extends React.Component{
 }
 const WrappedOneSearch = Form.create()(OneSearch)
 
+const data1 = [
+        {name: "JavaScript",value:2},
+        {name: "Java",value:1},
+        {name: "HTML/CSS",value:3}
+      ]
+const data2 = [
+        {name: "JavaScript",value:3,v2:9},
+        {name: "Java",value:2,v2:6},
+        {name: "HTML/CSS",value:1,v2:7}
+      ]
+const series1={
+        type:"line",
+        markPoint:
+         {data:[{type:"max",name:"最大值"}]}
+      }
+
 class GraphForm extends React.Component{
   constructor(props) {
     super(props);
   }
   render(){
+    const size={width:"400px",height:"300px"}
     return(
+     <div>
       <Divider orientation="left"><h1>趋势与图表</h1></Divider>
+      <MyEcharts type={"pie"} title={"编程语言"} data={data1} size={size}/>
+      <MyEcharts type={"bar"} title={"语言2"} data={data2} size={size}/>
+     </div>
     )
   }
 }
